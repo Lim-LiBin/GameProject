@@ -34,7 +34,7 @@ public class Server {
 	
 	//오류 발생 시 메시지 출력 후 프로그램 종료
 	private static void handleError(String string) {
-		System.out.println(string);
+		System.out.println("[오류] " + string);
 		System.exit(1);
 	}
 	
@@ -45,7 +45,7 @@ public class Server {
 			//서버가 종료될 때까지 무한 루프 돌며 클라이언트 접속 기다림
 			while(true) {
 				try {
-					System.out.println("Waiting Clients");
+					System.out.println("[서버] 클라이언트 접속 대기 중...");
 					client_socket = socket.accept(); //새 클라이언트 접속 시 Socket 객체 반환
 					
 					System.out.println("새로운 참가자 from " + client_socket);
@@ -54,11 +54,11 @@ public class Server {
 					UserService new_user = new UserService(client_socket);
 					//전체 사용자 리스트에 새로 접속한 클라이언트 추가
 					UserVec.add(new_user);
-					System.out.println("사용자 입장. 현재 참가자 수 " + UserVec.size());
+					System.out.println("[접속] 사용자 입장. (현재 참가자 수 " + UserVec.size() + "명)");
 					//UserService 스레드 시작하여 클라이언트와의 통신 시작
 					new_user.start();
 				} catch(IOException e) {
-					System.out.println("AcceptServer 에러 발생");
+					System.out.println("[오류] AcceptServer 에러 발생");
 				}
 			}
 		}
@@ -90,7 +90,7 @@ public class Server {
 				String[] msg = line1.split("::"); //"::"를 기준으로 문자열 자름
 				UserName = msg[1].trim(); //1번 인덱스가 사용자 이름
 				
-				System.out.println("새로운 참가자 " + UserName + "입장");
+				System.out.println("[접속] 새로운 참가자 " + UserName + "입장");
 				
 				//입장 메시지를 CHAT::[메시지] 프로토콜에 맞게 모든 클라이언트에게 전달
 				WriteAll("CHAT::" + UserName + "님이 입장했습니다.\n");
@@ -98,7 +98,7 @@ public class Server {
 				//환영 메시지를 CHAT::[메시지] 프로토콜에 맞게 이 클라이언트에게만 전달
 				WriteOne("CHAT::게임에 참가해주셔서 감사합니다.\n");
 			} catch(Exception e) {
-				System.out.println("userService error");
+				System.out.println("[오류] userService error");
 			}
 		}
 		
@@ -120,12 +120,13 @@ public class Server {
  				
  				//전체 사용자 리스트에서 '나'를 제거
  				UserVec.removeElement(this);
- 				System.out.println("사용자 퇴장. 현재 참가자 수 " + UserVec.size());
+ 				System.out.println("[퇴장] 사용자 퇴장. (현재 참가자 수 " + UserVec.size() + "명)");
  			}
 		}
 		
 		//Broadcast - 모든 클라이언트에게 메시지 전송 (자신 포함)
 		public void WriteAll(String str) {
+			System.out.println("[메시지 발송] " + str);
 			//user_vc 리스트에 있는 모든 UserService 객체 순회
 			for (int i = 0; i < user_vc.size(); i++) {
 				UserService user = user_vc.get(i); //i번째 유저 가져와서
@@ -140,13 +141,13 @@ public class Server {
 				try {
 					String msg = dis.readUTF(); //메시지 수신
 					msg = msg.trim();
-					System.out.println(msg); //서버 콘솔에 수신한 메시지 출력 (서버 GUI를 만들지..)
+					System.out.println("[메시지 수신] " + UserName + ": " + msg); //서버 콘솔에 수신한 메시지 출력 (서버 GUI를 만들지..)
 					
 					//받은 메시지를 CHAT::이든 DRAW::이든 구분 없이
 					//즉시 모든 클라이언트에게 보냄
 					WriteAll(msg + "\n");
 				} catch (IOException e) { //클라이언트가 강제 종료되거나 연결이 끊기면 IOException 발생
-                    System.out.println("dis.readUTF() error");
+                    System.out.println("[오류] dis.readUTF() error");
                     try { //스트림과 소켓 닫음
                         dos.close();
                         dis.close();
@@ -154,7 +155,7 @@ public class Server {
                         
                         //전체 사용자 리스트에서 '나'를 제거
                         UserVec.removeElement(this); // 에러가 난 현재 객체를 벡터에서 지운다
-                        System.out.println("사용자 퇴장. 남은 참가자 수 " + UserVec.size());
+                        System.out.println("[퇴장] 사용자 퇴장. (남은 참가자 수 " + UserVec.size() + "명)");
                         break;
                     } catch (Exception ee) {
                         break;
