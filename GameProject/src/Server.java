@@ -1,62 +1,96 @@
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Vector;
 
 public class Server {
-	private ServerSocket socket = null; //클라이언트 접속 기다리는 서버 소켓
-	private Socket client_socket = null; //AcceptServer가 새로 접속한 클라이언트를 임시로 담을 객체
-	private Vector<UserService> UserVec = new Vector<>(); //현재 접속 중인 모든 클라이언트를 관리하는 리스트
+	private ServerSocket socket = null; 
+	private Socket client_socket = null;
+	private Vector<UserService> UserVec = new Vector<>(); 
 	
-	//서버 생성자
-	//서버가 시작되면 즉시 호출해 소켓 열고, AcceptServer 스레드를 시작하여 클라이언트 접속을 기다린다.
+	// [추가] 임시 단어장
+	private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거"};
+	
 	public Server() {
 		try {
-			setupConnection(); //서버 소켓 설정
+			setupConnection(); 
 		} catch(IOException e) {
 			handleError(e.getMessage());
 		}
 		
-		//클라이언트 접속을 무한정 기다리는 스레드 생성 후 시작
 		AcceptServer accept_server = new AcceptServer();
 		accept_server.start();
 	}
 	
 	public void setupConnection() throws IOException {
-		socket = new ServerSocket(9999); //9999 포트에서 서버 소켓 생성
+		socket = new ServerSocket(9999); 
 	}
 	
-	//오류 발생 시 메시지 출력 후 프로그램 종료
 	private static void handleError(String string) {
 		System.out.println("[오류] " + string);
 		System.exit(1);
 	}
 	
-	//클라이언트 접속 담당하는 전용 스레드
+	// [새 메서드] 게임 시작 로직
+	public void checkGameStart() {
+		// [수정] 2명 이상이고, 현재 게임 중이 아닐 때 (지금은 항상 시작)
+		if (UserVec.size() >= 2) { 
+			System.out.println("[게임 시작] 2명 이상 접속하여 게임을 시작합니다.");
+			
+			// [TODO] 실제로는 랜덤하게 뽑아야 함
+			UserService drawer = UserVec.get(0); 
+			String keyword = keywords[(int)(Math.random() * keywords.length)]; // 랜덤 단어
+			
+			for (UserService user : UserVec) {
+				if (user == drawer) {
+					System.out.println("출제자(" + user.UserName + "): " + keyword);
+					user.WriteOne("START::drawer," + keyword);
+				} else {
+					System.out.println("정답자(" + user.UserName + "): " + keyword.length() + "글자");
+					user.WriteOne("START::guesser," + keyword.length());
+				}
+			}
+		} else {
+			System.out.println("[게임 대기] 1명만 접속 중입니다.");
+		}
+	}
+	
+	// [수정] 클라이언트 접속 담당하는 전용 스레드
 	private class AcceptServer extends Thread {
 		@Override
 		public void run() {
-			//서버가 종료될 때까지 무한 루프 돌며 클라이언트 접속 기다림
 			while(true) {
 				try {
 					System.out.println("[서버] 클라이언트 접속 대기 중...");
-					client_socket = socket.accept(); //새 클라이언트 접속 시 Socket 객체 반환
+					client_socket = socket.accept(); 
 					
 					System.out.println("새로운 참가자 from " + client_socket);
 					
-					//접속한 클라이언트 담당할 UserService 스레드 생성
+					// [수정] UserService 생성
 					UserService new_user = new UserService(client_socket);
-					//전체 사용자 리스트에 새로 접속한 클라이언트 추가
-					UserVec.add(new_user);
-					System.out.println("[접속] 사용자 입장. (현재 참가자 수 " + UserVec.size() + "명)");
-					//UserService 스레드 시작하여 클라이언트와의 통신 시작
-					new_user.start();
+
+					// [수정] 유저 이름 먼저 받고, 리스트에 추가 (타이밍 문제 해결)
+					if (new_user.initUser()) { // initUser()가 이름을 성공적으로 읽으면 true 반환
+						UserVec.add(new_user); // [!!] 리스트에 먼저 추가
+						new_user.start(); // 스레드 시작
+						
+						// [!!] 환영 메시지 및 유저 목록 전송 (initUser에서 이동)
+						new_user.broadcastJoin(); 
+						
+						System.out.println("[접속] 사용자 입장. (현재 참가자 수 " + UserVec.size() + "명)");
+						
+						// [추가] 게임 시작 로직 호출
+						checkGameStart();
+
+					} else {
+						// 이름 읽기 실패 (연결 끊김 등)
+						System.out.println("[접속 실패] 이름 읽기 실패");
+						client_socket.close();
+					}
+
 				} catch(IOException e) {
 					System.out.println("[오류] AcceptServer 에러 발생");
 				}
@@ -64,101 +98,119 @@ public class Server {
 		}
 	}
 	
-	//접속한 클라이언트 한 명을 담당하는 스레드
-	//각 클라이언트의 메시지 수신 및 송신을 독립적으로 처리
 	class UserService extends Thread {
-		private DataInputStream dis;
-		private DataOutputStream dos;
+		private BufferedReader in;
+		private PrintWriter out;
 		
-		private Socket client_socket; //해당 스레드가 담당하는 클라이언트의 소켓
-		private Vector<UserService> user_vc; //모든 유저 목록
-		private String UserName = ""; //이 클라이언트의 유저 이름
+		private Socket client_socket; 
+		private Vector<UserService> user_vc;
+		private String UserName = ""; 
 		
-		//클라이언트 소켓을 받아 스트림 설정함
-		//가장 먼저 클라이언트로부터 LOGIN:[이름] 프로토콜을 받아 사용자 이름 설정
+		// [수정] 생성자: 스트림만 설정
 		public UserService(Socket client_socket) {
 			this.client_socket = client_socket;
-			this.user_vc = UserVec; //서버의 UserVec 가리키도록 설정
+			this.user_vc = UserVec; 
 			
 			try {
-				//클라이언트와 통신하기 위한 입출력 스트림 생성
-				dis = new DataInputStream(client_socket.getInputStream());
-				dos = new DataOutputStream(client_socket.getOutputStream());
-				
-				//클라이언트가 접속하자마자 보내는 첫 번째 메시지(LOGIN::[이름])를 읽음
-				String line1 = dis.readUTF();
-				String[] msg = line1.split("::"); //"::"를 기준으로 문자열 자름
-				UserName = msg[1].trim(); //1번 인덱스가 사용자 이름
-				
-				System.out.println("[접속] 새로운 참가자 " + UserName + "입장");
-				
-				//입장 메시지를 CHAT::[메시지] 프로토콜에 맞게 모든 클라이언트에게 전달
-				WriteAll("CHAT::" + UserName + "님이 입장했습니다.\n");
-				
-				//환영 메시지를 CHAT::[메시지] 프로토콜에 맞게 이 클라이언트에게만 전달
-				WriteOne("CHAT::게임에 참가해주셔서 감사합니다.\n");
+				in = new BufferedReader(new InputStreamReader(client_socket.getInputStream()));
+				out = new PrintWriter(client_socket.getOutputStream(), true);
 			} catch(Exception e) {
-				System.out.println("[오류] userService error");
+				System.out.println("[오류] userService 스트림 생성 error");
 			}
 		}
+		
+		// [새 메서드] 유저 이름 초기화
+		public boolean initUser() {
+			try {
+				String line1 = in.readLine(); // LOGIN::[이름]
+				if (line1 == null) return false;
+				
+				String[] msg = line1.split("::"); 
+				this.UserName = msg[1].trim();
+				System.out.println("[접속] " + UserName + " 이름 확인");
+				return true;
+			} catch(Exception e) {
+				System.out.println("[오류] initUser error");
+				return false;
+			}
+		}
+		
+		// [새 메서드] 유저 목록 전송 및 입장 메시지 브로드캐스트
+		public void broadcastJoin() {
+			// [수정] 기존 사용자들에게 새 사용자(나)의 접속을 알리고
+			//       새 사용자(나)에게 기존 사용자들의 정보를 보냄
+			for (UserService user : user_vc) { 
+				if (user == this) {
+					// 1. 나에게 "환영" 메시지
+					user.WriteOne("CHAT::게임에 참가해주셔서 감사합니다.");
+				} else {
+					// 2. 기존 유저에게: "새 유저(나)가 로그인했다" (참가자 목록 갱신용)
+					user.WriteOne("LOGIN::" + this.UserName);
+					
+					// 3. 새 유저(나)에게: "이런 기존 유저가 있다" (참가자 목록 갱신용)
+					this.WriteOne("LOGIN::" + user.UserName);
+				}
+			}
+			// [수정] WriteAll은 이제 '나'를 포함한 모두에게 전송
+			WriteAll("CHAT::" + this.UserName + "님이 입장했습니다.");
+		}
+		
 		
 		//이 클라이언트에게만 메시지 전달
 		public void WriteOne(String msg) {
 			try {
-				dos.writeUTF(msg);
- 			} catch(IOException e) {
- 				//메시지 전송 실패 == 클라이언트가 접속을 끊었을 가능성 높음
- 				System.out.println("dos.write() error");
- 				
- 				try { //스트림과 소켓을 닫아 리소스 정리
- 					dos.close();
- 					dis.close();
- 					client_socket.close();
- 				} catch(IOException e1) {
- 					e1.printStackTrace();
- 				}
- 				
- 				//전체 사용자 리스트에서 '나'를 제거
- 				UserVec.removeElement(this);
- 				System.out.println("[퇴장] 사용자 퇴장. (현재 참가자 수 " + UserVec.size() + "명)");
+				out.println(msg);
+ 			} catch(Exception e) { 
+ 				System.out.println("WriteOne() error: " + e.getMessage());
+ 				// (에러 처리 로직... 현재는 생략)
  			}
 		}
 		
 		//Broadcast - 모든 클라이언트에게 메시지 전송 (자신 포함)
 		public void WriteAll(String str) {
 			System.out.println("[메시지 발송] " + str);
-			//user_vc 리스트에 있는 모든 UserService 객체 순회
 			for (int i = 0; i < user_vc.size(); i++) {
-				UserService user = user_vc.get(i); //i번째 유저 가져와서
-				user.WriteOne(str); //해당 유저에게 WriteOne() 호출하여 메시지 보냄
+				UserService user = user_vc.get(i); 
+				user.WriteOne(str); 
 			}
 		}
 		
-		//클라이언트로부터 메시지를 계속 수신하고
-		//받은 메시지를 모든 클라이언트에게 중계함
+		//클라이언트로부터 메시지를 계속 수신
 		public void run() {
 			while(true) {
 				try {
-					String msg = dis.readUTF(); //메시지 수신
-					msg = msg.trim();
-					System.out.println("[메시지 수신] " + UserName + ": " + msg); //서버 콘솔에 수신한 메시지 출력 (서버 GUI를 만들지..)
+					String msg = in.readLine();
 					
-					//받은 메시지를 CHAT::이든 DRAW::이든 구분 없이
-					//즉시 모든 클라이언트에게 보냄
-					WriteAll(msg + "\n");
-				} catch (IOException e) { //클라이언트가 강제 종료되거나 연결이 끊기면 IOException 발생
-                    System.out.println("[오류] dis.readUTF() error");
-                    try { //스트림과 소켓 닫음
-                        dos.close();
-                        dis.close();
+                    if (msg == null) {
+                        System.out.println("[접속 종료] " + UserName + " 님이 연결을 끊었습니다.");
+                        throw new IOException("Client disconnected"); 
+                    }
+					
+					msg = msg.trim();
+					System.out.println("[메시지 수신] " + UserName + ": " + msg); 
+					
+					if (msg.startsWith("CHAT::") || msg.startsWith("DRAW::") || msg.startsWith("CLEAR::")) {
+						WriteAll(msg);
+					}
+					// [TODO] 향후 ANSWER:: 등 다른 프로토콜 처리 로직 추가
+					
+				} catch (IOException e) { 
+                    System.out.println("[오류] " + UserName + " 스레드 오류: " + e.getMessage());
+                    try { 
+                        out.close(); 
+ 						in.close(); 
                         client_socket.close();
                         
-                        //전체 사용자 리스트에서 '나'를 제거
-                        UserVec.removeElement(this); // 에러가 난 현재 객체를 벡터에서 지운다
+                        UserVec.removeElement(this); 
                         System.out.println("[퇴장] 사용자 퇴장. (남은 참가자 수 " + UserVec.size() + "명)");
-                        break;
+                        
+                        // [추가] 퇴장 메시지 전송
+                        WriteAll("CHAT::" + UserName + "님이 퇴장했습니다.");
+                        // [TODO] 유저가 나가면 UserStatusPanel 제거하는 LOGOUT:: 프로토콜 전송 필요
+                        
+                        break; 
                     } catch (Exception ee) {
-                        break;
+                        break; 
                     } 
                 }
 			}

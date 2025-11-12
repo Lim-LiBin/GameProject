@@ -218,10 +218,10 @@ public class GameRoomScreen extends JFrame {
 		userListPanel.setBorder(new TitledBorder("참가자"));
 		userListPanel.setPreferredSize(new Dimension(170, 0));
 		
-		// [테스트] 샘플 유저 패널 추가
+		// [수정] 샘플 유저 패널 -> '나'만 우선 추가. 나머지는 서버에서 받아야 함.
 		userListPanel.add(new UserStatusPanel(nickname + " (나)"));
-		userListPanel.add(new UserStatusPanel("test2"));
-		userListPanel.add(new UserStatusPanel("test3"));
+		// userListPanel.add(new UserStatusPanel("test2")); // [수정] 삭제
+		// userListPanel.add(new UserStatusPanel("test3")); // [수정] 삭제
 		
 		JScrollPane userListScrollPane = new JScrollPane(userListPanel);
 		userListScrollPane.setPreferredSize(new Dimension(170, 0));
@@ -322,7 +322,8 @@ public class GameRoomScreen extends JFrame {
 		});
 
 		// --- 서버 연결 시작 ---
-		// connectToServer(serverAddress, serverPort);
+		// [수정] 주석 해제!!
+		connectToServer(serverAddress, serverPort); 
 	}
 	
 	// [새 메서드] 스케치에 맞는 색상 버튼 생성
@@ -370,7 +371,7 @@ public class GameRoomScreen extends JFrame {
 			// (예: keywordLabel.getText()와 message가 일치하면 ANSWER::)
 			
 			// 지금은 일단 CHAT::으로 전송
-        	sendMessage("CHAT::" + message); 
+        	sendMessage("CHAT::" + this.nickname + ": " + message); // [수정] 닉네임 포함
             chatInput.setText("");
         }
 	}
@@ -396,10 +397,12 @@ public class GameRoomScreen extends JFrame {
             try {
                 String serverMessage;
                 while ((serverMessage = in.readLine()) != null) {
-                    processServerMessage(serverMessage);
+                	// [수정] 스윙 컴포넌트 업데이트는 EventQueue 스레드에서 처리
+                	String finalMessage = serverMessage;
+                    EventQueue.invokeLater(() -> processServerMessage(finalMessage));
                 }
             } catch (IOException e) {
-                chatDisplay.append("서버 연결이 끊어졌습니다.\n");
+                EventQueue.invokeLater(() -> chatDisplay.append("서버 연결이 끊어졌습니다.\n"));
             } finally {
                 try {
                     if (socket != null && !socket.isClosed()) socket.close();
@@ -458,7 +461,11 @@ public class GameRoomScreen extends JFrame {
             setRole(false, lengthStr);
         }
         else if (serverMessage.startsWith("LOGIN::")) {
-            // [TODO] 새 유저가 접속하면 userListPanel에 UserStatusPanel 추가
+            // [수정] 새 유저가 접속하면 userListPanel에 UserStatusPanel 추가
+            String newUserName = serverMessage.substring(7);
+            userListPanel.add(new UserStatusPanel(newUserName));
+            userListPanel.revalidate(); // [중요] UI 갱신
+            userListPanel.repaint(); // [중요] UI 갱신
         }
         else if (serverMessage.startsWith("LOGOUT::")) {
             // [TODO] 유저가 나가면 userListPanel에서 UserStatusPanel 제거

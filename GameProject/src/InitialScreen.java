@@ -9,6 +9,9 @@ import java.awt.BorderLayout;
 import javax.swing.SwingConstants;
 import javax.swing.JTextField;
 import javax.swing.JButton;
+import javax.swing.JOptionPane; // [추가]
+import java.awt.event.ActionListener; // [추가]
+import java.awt.event.ActionEvent; // [추가]
 
 public class InitialScreen extends JFrame {
 
@@ -68,6 +71,22 @@ public class InitialScreen extends JFrame {
 		
 		//하단 참여하기 버튼
 		JButton join_btn = new JButton("참여하기");
+		
+		// [추가] 참여하기 버튼 리스너
+		join_btn.addActionListener(new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				String nickname = textField.getText().trim();
+				if (nickname.isEmpty()) {
+					JOptionPane.showMessageDialog(InitialScreen.this, "닉네임을 입력하세요.", "오류", JOptionPane.ERROR_MESSAGE);
+					return;
+				}
+				
+				// 닉네임과 함께 로비(CreateRoomScreen) 화면 열기
+				new CreateRoomScreen(nickname).setVisible(true);
+				dispose(); // 현재 로그인 창 닫기
+			}
+		});
+		
 		
 		JPanel southPanel = new JPanel();
 		southPanel.add(join_btn);
