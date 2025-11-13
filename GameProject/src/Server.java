@@ -13,6 +13,7 @@ public class Server {
 	
 	// [추가] 임시 단어장
 	private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거"};
+	private String currentKeyword = "";
 	
 	public Server() {
 		try {
@@ -40,9 +41,13 @@ public class Server {
 		if (UserVec.size() >= 2) { 
 			System.out.println("[게임 시작] 2명 이상 접속하여 게임을 시작합니다.");
 			
-			// [TODO] 실제로는 랜덤하게 뽑아야 함
-			UserService drawer = UserVec.get(0); 
+			// [수정!!] 랜덤으로 출제자 선정
+			int drawerIndex = (int)(Math.random() * UserVec.size());
+			UserService drawer = UserVec.get(drawerIndex);
+			
 			String keyword = keywords[(int)(Math.random() * keywords.length)]; // 랜덤 단어
+			
+			this.currentKeyword = keyword;
 			
 			for (UserService user : UserVec) {
 				if (user == drawer) {
@@ -189,10 +194,33 @@ public class Server {
 					msg = msg.trim();
 					System.out.println("[메시지 수신] " + UserName + ": " + msg); 
 					
-					if (msg.startsWith("CHAT::") || msg.startsWith("DRAW::") || msg.startsWith("CLEAR::")) {
+					// [TODO] 향후 ANSWER:: 등 다른 프로토콜 처리 로직 추가
+					
+					if (msg.startsWith("ANSWER::")) {
+						String userAnswer = msg.substring(8).trim();
+						
+						//정답 비교
+						if (!Server.this.currentKeyword.isEmpty() && userAnswer.equalsIgnoreCase(Server.this.currentKeyword)) {
+							//정답 맞혔을 때
+							System.out.println("[정답] " + this.UserName + "님이 정답을 맞혔습니다.");
+							
+							//정답 맞히면, 다음 턴 전까지 정답을 비워 중복 정답 방지
+							String answer = Server.this.currentKeyword;
+							Server.this.currentKeyword = "";
+							
+							//모든 클라이언트에게 정답 전송
+							WriteAll("CORRECT::" + this.UserName + " (정답: " + answer + ")");
+							
+							//다음 턴 준비
+							//2초 정도 쉼
+							try {Thread.sleep(2000);} catch(InterruptedException e) {}
+							Server.this.checkGameStart();
+						} else { //틀렸을 때
+							WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
+						}
+					} else if (msg.startsWith("CHAT::") || msg.startsWith("DRAW::") || msg.startsWith("CLEAR::") || msg.startsWith("RGB::")) {
 						WriteAll(msg);
 					}
-					// [TODO] 향후 ANSWER:: 등 다른 프로토콜 처리 로직 추가
 					
 				} catch (IOException e) { 
                     System.out.println("[오류] " + UserName + " 스레드 오류: " + e.getMessage());
