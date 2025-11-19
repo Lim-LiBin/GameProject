@@ -5,15 +5,13 @@ import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Vector;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public class Server {
 	private ServerSocket socket = null; 
-	private Socket client_socket = null;
-	private Vector<UserService> UserVec = new Vector<>(); 
-	
-	// [추가] 임시 단어장
-	private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거"};
-	private String currentKeyword = "";
+	private Vector<Room> RoomVec = new Vector<>(); 
+	private ConcurrentHashMap<String, Room> RoomMap = new ConcurrentHashMap<>();
 	
 	public Server() {
 		try {
@@ -21,7 +19,6 @@ public class Server {
 		} catch(IOException e) {
 			handleError(e.getMessage());
 		}
-		
 		AcceptServer accept_server = new AcceptServer();
 		accept_server.start();
 	}
@@ -35,217 +32,203 @@ public class Server {
 		System.exit(1);
 	}
 	
-	// [새 메서드] 게임 시작 로직
-	public void checkGameStart() {
-		// [수정] 2명 이상이고, 현재 게임 중이 아닐 때 (지금은 항상 시작)
-		if (UserVec.size() >= 2) { 
-			System.out.println("[게임 시작] 2명 이상 접속하여 게임을 시작합니다.");
-			
-			// [수정!!] 랜덤으로 출제자 선정
-			int drawerIndex = (int)(Math.random() * UserVec.size());
-			UserService drawer = UserVec.get(drawerIndex);
-			
-			String keyword = keywords[(int)(Math.random() * keywords.length)]; // 랜덤 단어
-			
-			this.currentKeyword = keyword;
-			
-			for (UserService user : UserVec) {
-				if (user == drawer) {
-					System.out.println("출제자(" + user.UserName + "): " + keyword);
-					user.WriteOne("START::drawer," + keyword);
-				} else {
-					System.out.println("정답자(" + user.UserName + "): " + keyword.length() + "글자");
-					user.WriteOne("START::guesser," + keyword.length());
-				}
-			}
+	public Room createRoom(String name) {
+		name = name.trim();
+		if (RoomMap.containsKey(name)) {
+			return RoomMap.get(name);
+		}
+		Room newRoom = new Room(name);
+		RoomVec.add(newRoom);
+		RoomMap.put(name, newRoom);
+		System.out.println("[방 생성] " + name);
+		return newRoom;
+	}
+	
+	public void checkGameStart(Room room) {
+		// 방의 인원이 2명 이상이고, 현재 진행 중인 단어가 없을 때만 시작
+		if (room.roomUsers.size() >= 2 && room.currentKeyword.isEmpty()) { 
+			System.out.println("[" + room.roomName + "] 게임 시작 조건을 만족하여 시작합니다.");
+			room.startGame(); 
 		} else {
-			System.out.println("[게임 대기] 1명만 접속 중입니다.");
+			System.out.println("[" + room.roomName + "] 대기 중. (인원: " + room.roomUsers.size() + "/2, 진행중: " + !room.currentKeyword.isEmpty() + ")");
 		}
 	}
 	
-	// [수정] 클라이언트 접속 담당하는 전용 스레드
 	private class AcceptServer extends Thread {
 		@Override
 		public void run() {
 			while(true) {
 				try {
-					System.out.println("[서버] 클라이언트 접속 대기 중...");
-					client_socket = socket.accept(); 
-					
-					System.out.println("새로운 참가자 from " + client_socket);
-					
-					// [수정] UserService 생성
+					System.out.println("[서버] 접속 대기 중...");
+					Socket client_socket = socket.accept(); 
 					UserService new_user = new UserService(client_socket);
-
-					// [수정] 유저 이름 먼저 받고, 리스트에 추가 (타이밍 문제 해결)
-					if (new_user.initUser()) { // initUser()가 이름을 성공적으로 읽으면 true 반환
-						UserVec.add(new_user); // [!!] 리스트에 먼저 추가
-						new_user.start(); // 스레드 시작
-						
-						// [!!] 환영 메시지 및 유저 목록 전송 (initUser에서 이동)
-						new_user.broadcastJoin(); 
-						
-						System.out.println("[접속] 사용자 입장. (현재 참가자 수 " + UserVec.size() + "명)");
-						
-						// [추가] 게임 시작 로직 호출
-						checkGameStart();
-
+					if (new_user.initUser()) { 
+						new_user.start(); 
 					} else {
-						// 이름 읽기 실패 (연결 끊김 등)
-						System.out.println("[접속 실패] 이름 읽기 실패");
 						client_socket.close();
 					}
-
 				} catch(IOException e) {
-					System.out.println("[오류] AcceptServer 에러 발생");
+					System.out.println("[오류] AcceptServer: " + e.getMessage());
 				}
 			}
 		}
 	}
 	
-	class UserService extends Thread {
-		private BufferedReader in;
-		private PrintWriter out;
-		
-		private Socket client_socket; 
-		private Vector<UserService> user_vc;
-		private String UserName = ""; 
-		
-		// [수정] 생성자: 스트림만 설정
-		public UserService(Socket client_socket) {
-			this.client_socket = client_socket;
-			this.user_vc = UserVec; 
-			
-			try {
-				in = new BufferedReader(new InputStreamReader(client_socket.getInputStream()));
-				out = new PrintWriter(client_socket.getOutputStream(), true);
-			} catch(Exception e) {
-				System.out.println("[오류] userService 스트림 생성 error");
-			}
-		}
-		
-		// [새 메서드] 유저 이름 초기화
-		public boolean initUser() {
-			try {
-				String line1 = in.readLine(); // LOGIN::[이름]
-				if (line1 == null) return false;
-				
-				String[] msg = line1.split("::"); 
-				this.UserName = msg[1].trim();
-				System.out.println("[접속] " + UserName + " 이름 확인");
-				return true;
-			} catch(Exception e) {
-				System.out.println("[오류] initUser error");
-				return false;
-			}
-		}
-		
-		// [새 메서드] 유저 목록 전송 및 입장 메시지 브로드캐스트
-		public void broadcastJoin() {
-			// [수정] 기존 사용자들에게 새 사용자(나)의 접속을 알리고
-			//       새 사용자(나)에게 기존 사용자들의 정보를 보냄
-			for (UserService user : user_vc) { 
-				if (user == this) {
-					// 1. 나에게 "환영" 메시지
-					user.WriteOne("CHAT::게임에 참가해주셔서 감사합니다.");
-				} else {
-					// 2. 기존 유저에게: "새 유저(나)가 로그인했다" (참가자 목록 갱신용)
-					user.WriteOne("LOGIN::" + this.UserName);
-					
-					// 3. 새 유저(나)에게: "이런 기존 유저가 있다" (참가자 목록 갱신용)
-					this.WriteOne("LOGIN::" + user.UserName);
-				}
-			}
-			// [수정] WriteAll은 이제 '나'를 포함한 모두에게 전송
-			WriteAll("CHAT::" + this.UserName + "님이 입장했습니다.");
-		}
-		
-		
-		//이 클라이언트에게만 메시지 전달
-		public void WriteOne(String msg) {
-			try {
-				out.println(msg);
- 			} catch(Exception e) { 
- 				System.out.println("WriteOne() error: " + e.getMessage());
- 				// (에러 처리 로직... 현재는 생략)
- 			}
-		}
-		
-		//Broadcast - 모든 클라이언트에게 메시지 전송 (자신 포함)
+	class Room {
+		String roomName;
+	    Vector<UserService> roomUsers = new Vector<>(); 
+	    String currentKeyword = ""; 
+	    
+	    private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거", "바나나", "고양이", "피아노"}; 
+	    
+	    public Room(String name) {
+	    	this.roomName = name;
+	    }
+	    
 		public void WriteAll(String str) {
-			System.out.println("[메시지 발송] " + str);
-			for (int i = 0; i < user_vc.size(); i++) {
-				UserService user = user_vc.get(i); 
+			for (UserService user : roomUsers) {
 				user.WriteOne(str); 
 			}
 		}
 		
-		//클라이언트로부터 메시지를 계속 수신
+		// [중요 수정] 동기화 처리로 안전하게 게임 시작
+		public synchronized void startGame() {
+			if (roomUsers.size() < 2 || !currentKeyword.isEmpty()) return; 
+			
+			int drawerIndex = (int)(Math.random() * roomUsers.size());
+			UserService drawer = roomUsers.get(drawerIndex);
+			String keyword = keywords[(int)(Math.random() * keywords.length)]; 
+			
+			this.currentKeyword = keyword; 
+			
+			for (UserService user : roomUsers) {
+				if (user == drawer) {
+					user.WriteOne("START::drawer," + keyword);
+					user.isDrawer = true; 
+				} else {
+					user.WriteOne("START::guesser," + keyword.length());
+					user.isDrawer = false; 
+				}
+			}
+			System.out.println("[" + roomName + "] 새 라운드 시작! (출제자: " + drawer.UserName + ", 단어: " + keyword + ")");
+		}
+		
+		public void removeUser(UserService user) {
+			roomUsers.removeElement(user);
+			WriteAll("CHAT::" + user.UserName + "님이 퇴장했습니다.");
+			WriteAll("LOGOUT::" + user.UserName);
+			
+			if (!currentKeyword.isEmpty() && roomUsers.size() < 2) {
+				currentKeyword = "";
+				WriteAll("CHAT::[시스템] 인원 부족으로 게임이 종료되었습니다.");
+				WriteAll("CLEAR::"); // 화면 지우기
+			}
+		}
+	}
+
+	class UserService extends Thread {
+		private BufferedReader in;
+		private PrintWriter out;
+		private Socket client_socket; 
+		private Room currentRoom = null; 
+		private String UserName = ""; 
+		private boolean isDrawer = false; 
+		
+		public UserService(Socket client_socket) {
+			this.client_socket = client_socket;
+			try {
+				in = new BufferedReader(new InputStreamReader(client_socket.getInputStream()));
+				out = new PrintWriter(client_socket.getOutputStream(), true);
+			} catch(Exception e) { }
+		}
+		
+		public void joinRoom(String roomName) {
+			Room targetRoom = Server.this.createRoom(roomName);
+			this.currentRoom = targetRoom;
+			targetRoom.roomUsers.add(this);
+			
+			broadcastJoin();
+			Server.this.checkGameStart(targetRoom);
+		}
+		
+		public boolean initUser() {
+			try {
+				String line1 = in.readLine(); 
+				if (line1 == null || !line1.startsWith("LOGIN::")) return false;
+				this.UserName = line1.substring("LOGIN::".length()).trim();
+				return true;
+			} catch(Exception e) { return false; }
+		}
+		
+		public void broadcastJoin() {
+			if (currentRoom == null) return;
+			for (UserService user : currentRoom.roomUsers) {
+				if (user != this) this.WriteOne("LOGIN::" + user.UserName);
+			}
+			currentRoom.WriteAll("CHAT::" + this.UserName + "님이 입장했습니다.");
+			this.WriteOne("CHAT::방 이름: " + currentRoom.roomName);
+			this.WriteOne("LOGIN::" + this.UserName); // 나 자신도 리스트에 추가
+		}
+		
+		public void WriteOne(String msg) {
+			try { out.println(msg); } catch(Exception e) { }
+		}
+		
 		public void run() {
-			while(true) {
-				try {
-					String msg = in.readLine();
-					
-                    if (msg == null) {
-                        System.out.println("[접속 종료] " + UserName + " 님이 연결을 끊었습니다.");
-                        throw new IOException("Client disconnected"); 
-                    }
-					
+			try {
+				String msg;
+				while((msg = in.readLine()) != null) {
 					msg = msg.trim();
-					System.out.println("[메시지 수신] " + UserName + ": " + msg); 
 					
-					// [TODO] 향후 ANSWER:: 등 다른 프로토콜 처리 로직 추가
+					if (msg.startsWith("JOIN_ROOM::")) {
+					    if (currentRoom == null) joinRoom(msg.substring("JOIN_ROOM::".length()).trim());
+					    continue;
+					}
+					
+					if (currentRoom == null) continue;
 					
 					if (msg.startsWith("ANSWER::")) {
 						String userAnswer = msg.substring(8).trim();
 						
-						//정답 비교
-						if (!Server.this.currentKeyword.isEmpty() && userAnswer.equalsIgnoreCase(Server.this.currentKeyword)) {
-							//정답 맞혔을 때
-							System.out.println("[정답] " + this.UserName + "님이 정답을 맞혔습니다.");
+						// 정답 판별 로직
+						if (!currentRoom.currentKeyword.isEmpty() && userAnswer.equalsIgnoreCase(currentRoom.currentKeyword)) {
+							String answer = currentRoom.currentKeyword;
 							
-							//정답 맞히면, 다음 턴 전까지 정답을 비워 중복 정답 방지
-							String answer = Server.this.currentKeyword;
-							Server.this.currentKeyword = "";
+							// [핵심] 정답 맞춤 처리
+							currentRoom.currentKeyword = ""; // 즉시 키워드 초기화 (재시작 준비)
+							currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+							currentRoom.WriteAll("CHAT::[정답] " + this.UserName + " (정답: " + answer + ")");
 							
-							//모든 클라이언트에게 정답 전송
-							WriteAll("CORRECT::" + this.UserName + " (정답: " + answer + ")");
+							// 2초 딜레이 후 게임 재시작
+							try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
 							
-							//다음 턴 준비
-							//2초 정도 쉼
-							try {Thread.sleep(2000);} catch(InterruptedException e) {}
-							Server.this.checkGameStart();
-						} else { //틀렸을 때
-							WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
+							// 재시작 요청
+							Server.this.checkGameStart(currentRoom);
+							
+						} else {
+							currentRoom.WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
 						}
-					} else if (msg.startsWith("CHAT::") || msg.startsWith("DRAW::") || msg.startsWith("CLEAR::") || msg.startsWith("RGB::")) {
-						WriteAll(msg);
+					} 
+					else if (msg.startsWith("DRAW::") || msg.startsWith("CLEAR::") || msg.startsWith("RGB::")) {
+						if (isDrawer) currentRoom.WriteAll(msg);
+					}
+					else if (msg.startsWith("CHAT::")) {
+						currentRoom.WriteAll(msg); 
+					}
+					else if (msg.startsWith("GAME_START::")) {
+						currentRoom.startGame();
 					}
 					
-				} catch (IOException e) { 
-                    System.out.println("[오류] " + UserName + " 스레드 오류: " + e.getMessage());
-                    try { 
-                        out.close(); 
- 						in.close(); 
-                        client_socket.close();
-                        
-                        UserVec.removeElement(this); 
-                        System.out.println("[퇴장] 사용자 퇴장. (남은 참가자 수 " + UserVec.size() + "명)");
-                        
-                        // [추가] 퇴장 메시지 전송
-                        WriteAll("CHAT::" + UserName + "님이 퇴장했습니다.");
-                        // [TODO] 유저가 나가면 UserStatusPanel 제거하는 LOGOUT:: 프로토콜 전송 필요
-                        
-                        break; 
-                    } catch (Exception ee) {
-                        break; 
-                    } 
-                }
-			}
+				} 
+			} catch (IOException e) { 
+            } finally {
+                if (currentRoom != null) currentRoom.removeUser(this);
+                try { if(client_socket != null) client_socket.close(); } catch (Exception e) {} 
+            }
 		}
 	}
 	
 	public static void main(String[] args) {
-		new Server(); //서버 실행
+		new Server(); 
 	}
 }
