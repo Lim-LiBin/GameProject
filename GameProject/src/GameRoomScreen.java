@@ -279,6 +279,187 @@ public class GameRoomScreen extends JFrame {
                 String rgbMsg = "RGB::" + color.getRed() + "," + color.getGreen() + "," + color.getBlue();
                 sendProtocol(rgbMsg);
             }
+	// --- UserStatusPanel 끝 ---
+
+	/**
+	 * Launch the application. (테스트용 main)
+	 */
+	public static void main(String[] args) {
+		EventQueue.invokeLater(new Runnable() {
+			public void run() {
+				try {
+					// --- (수정됨) ---
+					// 1. 닉네임을 팝업창으로 물어봄
+					String nickname = JOptionPane.showInputDialog("닉네임을 입력하세요", "test1");
+					
+					// 2. 닉네임이 null이 아니면 (취소를 누르지 않으면) 창을 띄움
+					if (nickname != null && !nickname.isEmpty()) {
+						GameRoomScreen frame = new GameRoomScreen(nickname, "즐거운 캐치마인드 방", "localhost", 12345);
+						frame.setVisible(true);
+						
+						// [테스트] test1일 경우에만 출제자 역할 부여
+						if (nickname.equals("test1")) {
+							frame.setRole(true, "기린");
+						} else {
+							frame.setRole(false, "2"); // test2는 정답자
+						}
+					}
+					// --- (여기까지 수정) ---
+					
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+		});
+	}
+
+	/**
+	 * Create the frame.
+	 */
+	public GameRoomScreen(String nickname, String roomTitle, String serverAddress, int serverPort) {
+		this.nickname = nickname;
+
+		setTitle(roomTitle);
+		setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+		setBounds(100, 100, 1000, 750); // 전체 프레임 크기
+		contentPane = new JPanel();
+		contentPane.setBorder(new EmptyBorder(5, 5, 5, 5));
+		contentPane.setLayout(new BorderLayout(10, 10)); // 전체 레이아웃
+		setContentPane(contentPane);
+
+		// --- 1. 상단 (NORTH): 방이름, 제시어, 점수 ---
+		JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 50, 5)); // 가운데 정렬, 좌우 간격 50
+		JLabel roomNameLabel = new JLabel("방 이름: " + roomTitle);
+		keywordLabel = new JLabel("제시어: ???"); // 초기값
+		scoreLabel = new JLabel("SCORE: 0"); // 초기값
+		topPanel.add(roomNameLabel);
+		topPanel.add(keywordLabel);
+		topPanel.add(scoreLabel);
+		contentPane.add(topPanel, BorderLayout.NORTH);
+
+		// --- 2. 오른쪽 (EAST): 유저 목록 (스케치 반영) ---
+		userListPanel = new JPanel();
+		userListPanel.setLayout(new BoxLayout(userListPanel, BoxLayout.Y_AXIS)); // 세로 배치
+		userListPanel.setBorder(new TitledBorder("참가자"));
+		userListPanel.setPreferredSize(new Dimension(170, 0));
+		
+		// [수정] 샘플 유저 패널 -> '나'만 우선 추가. 나머지는 서버에서 받아야 함.
+		userListPanel.add(new UserStatusPanel(nickname + " (나)"));
+		// userListPanel.add(new UserStatusPanel("test2")); // [수정] 삭제
+		// userListPanel.add(new UserStatusPanel("test3")); // [수정] 삭제
+		
+		JScrollPane userListScrollPane = new JScrollPane(userListPanel);
+		userListScrollPane.setPreferredSize(new Dimension(170, 0));
+		contentPane.add(userListScrollPane, BorderLayout.EAST);
+
+		// --- 3. 중앙 (CENTER): 그림판 + 도구 (스케치 반영) ---
+		JPanel drawingAreaPanel = new JPanel(new BorderLayout(5, 5));
+
+		// 3-1. 왼쪽 도구 패널 (drawingAreaPanel의 WEST)
+		JPanel toolPanel = new JPanel();
+		toolPanel.setLayout(new BoxLayout(toolPanel, BoxLayout.Y_AXIS));
+		toolPanel.setPreferredSize(new Dimension(80, 0));
+		toolPanel.setBorder(new EmptyBorder(10, 5, 10, 5));
+		
+		// [수정] 색상 버튼 (JPanel 배경색으로)
+		toolPanel.add(createColorButton(Color.RED));
+		toolPanel.add(createColorButton(Color.ORANGE)); // 스케치 반영
+		toolPanel.add(createColorButton(Color.YELLOW)); // 스케치 반영
+		toolPanel.add(createColorButton(Color.GREEN));
+		toolPanel.add(createColorButton(Color.BLUE));
+		toolPanel.add(createColorButton(Color.BLACK)); // 검정색 추가
+		
+		toolPanel.add(new JLabel(" ")); // 간격
+		
+		JButton eraserButton = new JButton("지우개");
+		JButton clearButton = new JButton("전체삭제");
+		
+		toolPanel.add(eraserButton);
+		toolPanel.add(clearButton);
+		
+		drawingAreaPanel.add(toolPanel, BorderLayout.WEST);
+
+		// 3-2. 그림판 (drawingAreaPanel의 CENTER)
+		drawingCanvas = new DrawingPanel();
+		drawingAreaPanel.add(drawingCanvas, BorderLayout.CENTER);
+		
+		contentPane.add(drawingAreaPanel, BorderLayout.CENTER);
+		
+		// --- 4. 하단 (SOUTH): 채팅창 및 입력 (프로토콜 요구사항 반영) ---
+		JPanel chatAndGuessPanel = new JPanel(new BorderLayout());
+		chatAndGuessPanel.setPreferredSize(new Dimension(0, 150)); // 하단 영역 높이
+		
+		chatDisplay = new JTextArea();
+		chatDisplay.setEditable(false);
+		chatDisplay.setLineWrap(true);
+		chatDisplay.setBorder(new TitledBorder("채팅 / 정답"));
+		
+		JPanel inputPanel = new JPanel(new BorderLayout());
+		chatInput = new JTextField();
+		JButton sendButton = new JButton("전송");
+		inputPanel.add(chatInput, BorderLayout.CENTER);
+		inputPanel.add(sendButton, BorderLayout.EAST);
+		
+		chatAndGuessPanel.add(new JScrollPane(chatDisplay), BorderLayout.CENTER);
+		chatAndGuessPanel.add(inputPanel, BorderLayout.SOUTH);
+		
+		contentPane.add(chatAndGuessPanel, BorderLayout.SOUTH);
+
+
+		// --- 이벤트 리스너 추가 ---
+
+		// 1. 채팅/정답 전송
+		ActionListener sendChatListener = e -> sendChatMessage();
+		sendButton.addActionListener(sendChatListener);
+		chatInput.addActionListener(sendChatListener);
+
+		// 2. 전체삭제 버튼
+		clearButton.addActionListener(e -> {
+			sendMessage("CLEAR::");
+			drawingCanvas.clearDrawing();
+		});
+
+		// 3. 지우개 버튼
+		eraserButton.addActionListener(e -> {
+			currentColor = drawingCanvas.getBackground(); // 지우개 = 배경색
+			currentStroke = ERASER_STROKE;
+		});
+		
+		// 4. 그림판 마우스 이벤트 (수정됨)
+		drawingCanvas.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				// (중요) 그리기 시작: 현재 색상과 굵기로 새 획 시작
+				drawingCanvas.startStroke(e.getPoint(), currentColor, currentStroke);
+				
+				// [프로토콜 경고!] 현재 프로토콜은 색상/굵기/새 획 정보를 보낼 수 없음!
+				// 임시로 '새 획 시작'을 알리는 좌표 전송 (서버와 협의 필요)
+				sendMessage("DRAW::" + e.getX() + "," + e.getY() + ",START"); 
+			}
+		});
+
+		drawingCanvas.addMouseMotionListener(new MouseMotionAdapter() {
+			@Override
+			public void mouseDragged(MouseEvent e) {
+				drawingCanvas.addPointToStroke(e.getPoint());
+				sendMessage("DRAW::" + e.getX() + "," + e.getY() + ",DRAG");
+			}
+		});
+
+		// --- 서버 연결 시작 ---
+		// [수정] 주석 해제!!
+		connectToServer(serverAddress, serverPort); 
+	}
+	
+	// [새 메서드] 스케치에 맞는 색상 버튼 생성
+	private JButton createColorButton(Color color) {
+        JButton colorButton = new JButton();
+        colorButton.setPreferredSize(new Dimension(50, 30));
+        colorButton.setMaximumSize(new Dimension(50, 30)); // 크기 고정
+        colorButton.setBackground(color);
+        colorButton.addActionListener(e -> {
+            currentColor = color; // 해당 버튼의 색상으로 현재 색 변경
+            currentStroke = 2; // 펜 굵기 기본값
         });
         return btn;
     }
@@ -294,6 +475,40 @@ public class GameRoomScreen extends JFrame {
         } else {
             // 정답자는 ANSWER 프로토콜로 정답 시도
             sendProtocol("ANSWER::" + text);
+	// [수정된 메서드] 역할에 따라 제시어 UI 변경
+	public void setRole(boolean isDrawer, String keyword) {
+		if (isDrawer) {
+			// 내가 출제자일 때
+			keywordLabel.setText("제시어: " + keyword);
+			keywordLabel.setForeground(Color.BLUE);
+			drawingCanvas.setEnabled(true);
+		} else {
+			// 내가 정답자일 때
+			try {
+				int length = Integer.parseInt(keyword);
+				String hint = "정답: ";
+				for (int i = 0; i < length; i++) {
+					hint += "__ ";
+				}
+				keywordLabel.setText(hint);
+				keywordLabel.setForeground(Color.BLACK);
+				drawingCanvas.setEnabled(false); // 그림 그리기 비활성화
+			} catch (NumberFormatException e) {
+				System.err.println("START::guesser 프로토콜 글자수 오류: " + keyword);
+			}
+		}
+	}
+	
+	// 채팅 메시지 전송 로직
+	private void sendChatMessage() {
+		String message = chatInput.getText();
+        if (!message.isEmpty()) {
+			// [TODO] 이게 정답인지, 채팅인지 판단하는 로직 필요
+			// (예: keywordLabel.getText()와 message가 일치하면 ANSWER::)
+			
+			// 지금은 일단 CHAT::으로 전송
+        	sendMessage("CHAT::" + this.nickname + ": " + message); // [수정] 닉네임 포함
+            chatInput.setText("");
         }
         chatInput.setText("");
     }
