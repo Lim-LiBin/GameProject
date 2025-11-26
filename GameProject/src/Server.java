@@ -12,6 +12,7 @@ public class Server {
 	private ServerSocket socket = null; 
 	private Vector<Room> RoomVec = new Vector<>(); 
 	private ConcurrentHashMap<String, Room> RoomMap = new ConcurrentHashMap<>();
+	private Vector<UserService> allUsers = new Vector<>();
 	
 	public Server() {
 		try {
@@ -19,6 +20,14 @@ public class Server {
 		} catch(IOException e) {
 			handleError(e.getMessage());
 		}
+		
+		//기본 방 5개 생성
+		createRoom("초보만 오세요");
+		createRoom("즐겜방입니다");
+		createRoom("고수방");
+		createRoom("아무나 환영");
+		createRoom("잠수 금지");
+		
 		AcceptServer accept_server = new AcceptServer();
 		accept_server.start();
 	}
@@ -41,17 +50,34 @@ public class Server {
 		RoomVec.add(newRoom);
 		RoomMap.put(name, newRoom);
 		System.out.println("[방 생성] " + name);
+		
+		broadcastAll("NEW_ROOM::" + name); //방이 생기면 모든 접속자에게 알림
+		
 		return newRoom;
 	}
 	
-	public void checkGameStart(Room room) {
-		// 방의 인원이 2명 이상이고, 현재 진행 중인 단어가 없을 때만 시작
-		if (room.roomUsers.size() >= 2 && room.currentKeyword.isEmpty()) { 
-			System.out.println("[" + room.roomName + "] 게임 시작 조건을 만족하여 시작합니다.");
-			room.startGame(); 
-		} else {
-			System.out.println("[" + room.roomName + "] 대기 중. (인원: " + room.roomUsers.size() + "/2, 진행중: " + !room.currentKeyword.isEmpty() + ")");
+	//전제 접속자에게 메시지 전송(로비 갱신용)
+	public void broadcastAll(String msg) {
+		for (UserService user : allUsers) {
+			user.WriteOne(msg);
 		}
+	}
+	
+	//현재 방 목록을 문자열로 변환
+	public String getRoomListString() {
+		StringBuilder sb = new StringBuilder();
+		for (Room r : RoomVec) {
+			sb.append(r.roomName).append(",");
+		}
+		return sb.toString();
+	}
+	
+	//정답 후 다음 라운드 자동 시작
+	public void checkGameStart(Room room) {
+		if (room.roomUsers.size() >= 2 && room.currentKeyword.isEmpty()) { 
+			System.out.println("[" + room.roomName + "] 다음 라운드를 시작합니다.");
+			room.startGame(); 
+		} 
 	}
 	
 	private class AcceptServer extends Thread {
@@ -62,10 +88,14 @@ public class Server {
 					System.out.println("[서버] 접속 대기 중...");
 					Socket client_socket = socket.accept(); 
 					UserService new_user = new UserService(client_socket);
+					
+					allUsers.add(new_user);
+					
 					if (new_user.initUser()) { 
 						new_user.start(); 
 					} else {
 						client_socket.close();
+						allUsers.remove(new_user);
 					}
 				} catch(IOException e) {
 					System.out.println("[오류] AcceptServer: " + e.getMessage());
@@ -78,6 +108,7 @@ public class Server {
 		String roomName;
 	    Vector<UserService> roomUsers = new Vector<>(); 
 	    String currentKeyword = ""; 
+	    UserService host = null; //방장 변수
 	    
 	    private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거", "바나나", "고양이", "피아노"}; 
 	    
@@ -91,9 +122,16 @@ public class Server {
 			}
 		}
 		
-		// [중요 수정] 동기화 처리로 안전하게 게임 시작
+		//게임 시작 로직
 		public synchronized void startGame() {
-			if (roomUsers.size() < 2 || !currentKeyword.isEmpty()) return; 
+			//인원이 부족하면 시작하지 않고 메시지 전송
+			if (roomUsers.size() < 2) {
+				WriteAll("CHAT::[시스템] 게임을 시작하려면 최소 2명이 필요합니다.");
+				return;
+			}
+			
+			//이미 게임 중이면 무시
+			if (!currentKeyword.isEmpty()) return;
 			
 			int drawerIndex = (int)(Math.random() * roomUsers.size());
 			UserService drawer = roomUsers.get(drawerIndex);
@@ -113,10 +151,31 @@ public class Server {
 			System.out.println("[" + roomName + "] 새 라운드 시작! (출제자: " + drawer.UserName + ", 단어: " + keyword + ")");
 		}
 		
+		public void enterUser(UserService user) {
+			roomUsers.add(user);
+			
+			if (roomUsers.size() == 1) {
+				host = user;
+				user.WriteOne("ROLE::HOST");
+				user.WriteOne("CHAT::[시스템] 당신은 방장입니다. 게임 시작 버튼을 눌러 게임을 시작하세요.");
+			} else {
+				user.WriteOne("ROLE::GUEST");
+			}
+			
+			System.out.println(roomName + "(참가자: " + roomUsers.size() + "명)");
+		}
+		
 		public void removeUser(UserService user) {
 			roomUsers.removeElement(user);
 			WriteAll("CHAT::" + user.UserName + "님이 퇴장했습니다.");
 			WriteAll("LOGOUT::" + user.UserName);
+			
+			// 나간 사람이 방장이고, 방에 아직 사람이 남아있다면
+			if (user == host && !roomUsers.isEmpty()) {
+				host = roomUsers.get(0); // 다음 사람을 방장으로 지정
+				host.WriteOne("ROLE::HOST");
+				WriteAll("CHAT::[시스템] " + host.UserName + "님이 새로운 방장이 되었습니다.");
+			}
 			
 			if (!currentKeyword.isEmpty() && roomUsers.size() < 2) {
 				currentKeyword = "";
@@ -145,14 +204,18 @@ public class Server {
 		public void joinRoom(String roomName) {
 			Room targetRoom = Server.this.createRoom(roomName);
 			this.currentRoom = targetRoom;
-			targetRoom.roomUsers.add(this);
+			targetRoom.enterUser(this);
 			
 			broadcastJoin();
-			Server.this.checkGameStart(targetRoom);
 		}
 		
 		public boolean initUser() {
 			try {
+				String currentRooms = Server.this.getRoomListString();
+				if(!currentRooms.isEmpty()) {
+					WriteOne("ROOM_LIST::" + currentRooms);
+				}
+				
 				String line1 = in.readLine(); 
 				if (line1 == null || !line1.startsWith("LOGIN::")) return false;
 				this.UserName = line1.substring("LOGIN::".length()).trim();
@@ -180,6 +243,12 @@ public class Server {
 				while((msg = in.readLine()) != null) {
 					msg = msg.trim();
 					
+					if (msg.startsWith("CREATE_ROOM::")) {
+						String roomName = msg.substring("CREATE_ROOM::".length()).trim();
+						Server.this.createRoom(roomName);
+						continue;
+					}
+					
 					if (msg.startsWith("JOIN_ROOM::")) {
 					    if (currentRoom == null) joinRoom(msg.substring("JOIN_ROOM::".length()).trim());
 					    continue;
@@ -188,27 +257,33 @@ public class Server {
 					if (currentRoom == null) continue;
 					
 					if (msg.startsWith("ANSWER::")) {
-						String userAnswer = msg.substring(8).trim();
-						
-						// 정답 판별 로직
-						if (!currentRoom.currentKeyword.isEmpty() && userAnswer.equalsIgnoreCase(currentRoom.currentKeyword)) {
-							String answer = currentRoom.currentKeyword;
-							
-							// [핵심] 정답 맞춤 처리
-							currentRoom.currentKeyword = ""; // 즉시 키워드 초기화 (재시작 준비)
-							currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
-							currentRoom.WriteAll("CHAT::[정답] " + this.UserName + " (정답: " + answer + ")");
-							
-							// 2초 딜레이 후 게임 재시작
-							try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
-							
-							// 재시작 요청
-							Server.this.checkGameStart(currentRoom);
-							
-						} else {
-							currentRoom.WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
-						}
-					} 
+		                String userAnswer = msg.substring(8).trim();
+		                
+		                //정답과 일치하는지 확인
+		                if (!currentRoom.currentKeyword.isEmpty() && userAnswer.equalsIgnoreCase(currentRoom.currentKeyword)) {
+		                    
+		                    //입력한 사람이 '출제자'인지 확인
+		                    if (this.isDrawer) {
+		                        //출제자라면 게임을 끝내지 않고, 본인에게만 경고 메시지 전송
+		                        this.WriteOne("CHAT::[시스템] 출제자는 정답을 입력할 수 없습니다.");
+		                    } 
+		                    //출제자가 아닌 '참여자'가 맞힌 경우 -> 정상적인 정답 처리
+		                    else {
+		                        String answer = currentRoom.currentKeyword;
+		                        
+		                        currentRoom.currentKeyword = ""; //키워드 초기화 (게임 종료)
+		                        currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+		                        
+		                        try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
+		                        
+		                        Server.this.checkGameStart(currentRoom); //다음 라운드
+		                    }
+		                    
+		                } else {
+		                    //정답이 아니면 일반 채팅으로 전송
+		                    currentRoom.WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
+		                }
+		            }
 					else if (msg.startsWith("DRAW::") || msg.startsWith("CLEAR::") || msg.startsWith("RGB::")) {
 						if (isDrawer) currentRoom.WriteAll(msg);
 					}
@@ -216,12 +291,18 @@ public class Server {
 						currentRoom.WriteAll(msg); 
 					}
 					else if (msg.startsWith("GAME_START::")) {
-						currentRoom.startGame();
+						if (currentRoom.host == this) {
+							currentRoom.startGame();
+						} else {
+							WriteOne("CHAT::[오류] 방장만 게임을 시작할 수 있습니다.");
+						}
 					}
 					
 				} 
 			} catch (IOException e) { 
             } finally {
+            	Server.this.allUsers.remove(this);
+            	
                 if (currentRoom != null) currentRoom.removeUser(this);
                 try { if(client_socket != null) client_socket.close(); } catch (Exception e) {} 
             }

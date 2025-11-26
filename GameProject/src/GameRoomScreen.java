@@ -67,6 +67,9 @@ public class GameRoomScreen extends JFrame {
     private Color currentPenColor = Color.BLACK; 
     private Color currentColor = Color.BLACK; 
     private float currentStroke = 2.0f; 
+    private static final float ERASER_STROKE = 10.0f; 
+    
+    private int score = 0; //획득 점수
     private static final float ERASER_STROKE = 50.0f;
 
     // 디자인 상수
@@ -299,6 +302,13 @@ public class GameRoomScreen extends JFrame {
         topRightGroup.setBackground(BG_COLOR);
         topRightGroup.setPreferredSize(new Dimension(300, 50)); // 채팅창 너비와 동일
         
+        startGameBtn = new JButton("게임 시작");
+        startGameBtn.setEnabled(false); //방장만 활성화됨
+        startGameBtn.addActionListener(e -> sendProtocol("GAME_START::")); 
+
+        keywordLabel = new JLabel("게임 대기 중...");
+        keywordLabel.setFont(keywordLabel.getFont().deriveFont(20.0f));
+        scoreLabel = new JLabel("SCORE: " + score);
         scoreLabel = createStyledLabel("SCORE: 0", 16f);
         scoreLabel.setPreferredSize(new Dimension(150, 50)); 
         scoreLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -582,7 +592,27 @@ public class GameRoomScreen extends JFrame {
             setupRound(false, lengthStr);
         } 
         else if (msg.startsWith("NOTICE_CORRECT::")) {
-            keywordLabel.setText("정답!");
+            // [중요 수정] JOptionPane 제거 (Blocking 방지)
+            // 대신 라벨과 채팅으로 안내
+            String content = msg.substring("NOTICE_CORRECT::".length());
+            
+            //정답자 이름 추출
+            String winner = "";
+            int index = content.indexOf("님이");
+            
+            if(index != -1) {
+            	winner = content.substring(0, index);
+            }
+            
+            if (this.nickname.equals(winner) && !isDrawer) {
+            	score++;
+            	scoreLabel.setText("SCORE: " + score);
+            	appendToChat("축하합니다! 정답입니다!"); //정답자에게 알림
+            } else { //정답자가 아닌 사람들에게 알림
+            	appendToChat(content);
+            }
+            
+            keywordLabel.setText("정답! 다음 라운드 준비 중...");
             keywordLabel.setForeground(Color.RED);
             drawingCanvas.clear(); 
             startGameBtn.setEnabled(false); 
@@ -613,6 +643,14 @@ public class GameRoomScreen extends JFrame {
         } 
         else if (msg.startsWith("CLEAR::")) {
             drawingCanvas.clear();
+        }
+        else if (msg.startsWith("ROLE::HOST")) { //방장 프로토콜
+        	startGameBtn.setEnabled(true);
+        	setTitle(roomTitle + " - " + nickname + " (방장)");
+        }
+        else if (msg.startsWith("ROLE::GUEST")) { //방장 프로토콜
+        	startGameBtn.setEnabled(false);
+        	setTitle(roomTitle + " - " + nickname);
         }
         else if (msg.startsWith("LOGIN::")) {
             String newName = msg.substring(7);
