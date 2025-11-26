@@ -67,7 +67,6 @@ public class GameRoomScreen extends JFrame {
     private Color currentPenColor = Color.BLACK; 
     private Color currentColor = Color.BLACK; 
     private float currentStroke = 2.0f; 
-    private static final float ERASER_STROKE = 10.0f; 
     
     private int score = 0; //획득 점수
     private static final float ERASER_STROKE = 50.0f;
@@ -292,7 +291,7 @@ public class GameRoomScreen extends JFrame {
         // 2. [가운데 그룹] 제시어 (여기가 수정됨!)
         // - 제시어를 별도의 그룹에서 빼서 BorderLayout.CENTER에 넣음
         // - 이렇게 하면 버튼과 오른쪽 스코어 사이의 공간을 혼자 차지하며 자동으로 가운데 정렬됨
-        keywordLabel = new JLabel("제시어");
+        keywordLabel = new JLabel("게임 대기 중...");
         keywordLabel.setFont(MAIN_FONT.deriveFont(Font.BOLD, 40f));
         keywordLabel.setForeground(Color.BLACK);
         keywordLabel.setHorizontalAlignment(SwingConstants.CENTER); // 라벨 내부에서도 텍스트 가운데 정렬
@@ -306,8 +305,8 @@ public class GameRoomScreen extends JFrame {
         startGameBtn.setEnabled(false); //방장만 활성화됨
         startGameBtn.addActionListener(e -> sendProtocol("GAME_START::")); 
 
-        keywordLabel = new JLabel("게임 대기 중...");
-        keywordLabel.setFont(keywordLabel.getFont().deriveFont(20.0f));
+        //keywordLabel = new JLabel("게임 대기 중...");
+        //keywordLabel.setFont(keywordLabel.getFont().deriveFont(20.0f));
         scoreLabel = new JLabel("SCORE: " + score);
         scoreLabel = createStyledLabel("SCORE: 0", 16f);
         scoreLabel.setPreferredSize(new Dimension(150, 50)); 
