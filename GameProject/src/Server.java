@@ -21,7 +21,6 @@ public class Server {
 			handleError(e.getMessage());
 		}
 		
-		//기본 방 5개 생성
 		createRoom("초보만 오세요");
 		createRoom("즐겜방입니다");
 		createRoom("고수방");
@@ -50,20 +49,16 @@ public class Server {
 		RoomVec.add(newRoom);
 		RoomMap.put(name, newRoom);
 		System.out.println("[방 생성] " + name);
-		
-		broadcastAll("NEW_ROOM::" + name); //방이 생기면 모든 접속자에게 알림
-		
+		broadcastAll("NEW_ROOM::" + name); 
 		return newRoom;
 	}
 	
-	//전제 접속자에게 메시지 전송(로비 갱신용)
 	public void broadcastAll(String msg) {
 		for (UserService user : allUsers) {
 			user.WriteOne(msg);
 		}
 	}
 	
-	//현재 방 목록을 문자열로 변환
 	public String getRoomListString() {
 		StringBuilder sb = new StringBuilder();
 		for (Room r : RoomVec) {
@@ -72,7 +67,6 @@ public class Server {
 		return sb.toString();
 	}
 	
-	//정답 후 다음 라운드 자동 시작
 	public void checkGameStart(Room room) {
 		if (room.roomUsers.size() >= 2 && room.currentKeyword.isEmpty()) { 
 			System.out.println("[" + room.roomName + "] 다음 라운드를 시작합니다.");
@@ -88,9 +82,7 @@ public class Server {
 					System.out.println("[서버] 접속 대기 중...");
 					Socket client_socket = socket.accept(); 
 					UserService new_user = new UserService(client_socket);
-					
 					allUsers.add(new_user);
-					
 					if (new_user.initUser()) { 
 						new_user.start(); 
 					} else {
@@ -108,9 +100,9 @@ public class Server {
 		String roomName;
 	    Vector<UserService> roomUsers = new Vector<>(); 
 	    String currentKeyword = ""; 
-	    UserService host = null; //방장 변수
+	    UserService host = null; 
 	    
-	    private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거", "바나나", "고양이", "피아노"}; 
+	    private String[] keywords = {"기린", "사과", "컴퓨터", "비행기", "자전거", "바나나", "고양이", "피아노", "자동차", "학교", "병원", "경찰"}; 
 	    
 	    public Room(String name) {
 	    	this.roomName = name;
@@ -122,15 +114,11 @@ public class Server {
 			}
 		}
 		
-		//게임 시작 로직
 		public synchronized void startGame() {
-			//인원이 부족하면 시작하지 않고 메시지 전송
 			if (roomUsers.size() < 2) {
 				WriteAll("CHAT::[시스템] 게임을 시작하려면 최소 2명이 필요합니다.");
 				return;
 			}
-			
-			//이미 게임 중이면 무시
 			if (!currentKeyword.isEmpty()) return;
 			
 			int drawerIndex = (int)(Math.random() * roomUsers.size());
@@ -153,7 +141,6 @@ public class Server {
 		
 		public void enterUser(UserService user) {
 			roomUsers.add(user);
-			
 			if (roomUsers.size() == 1) {
 				host = user;
 				user.WriteOne("ROLE::HOST");
@@ -161,7 +148,6 @@ public class Server {
 			} else {
 				user.WriteOne("ROLE::GUEST");
 			}
-			
 			System.out.println(roomName + "(참가자: " + roomUsers.size() + "명)");
 		}
 		
@@ -170,9 +156,8 @@ public class Server {
 			WriteAll("CHAT::" + user.UserName + "님이 퇴장했습니다.");
 			WriteAll("LOGOUT::" + user.UserName);
 			
-			// 나간 사람이 방장이고, 방에 아직 사람이 남아있다면
 			if (user == host && !roomUsers.isEmpty()) {
-				host = roomUsers.get(0); // 다음 사람을 방장으로 지정
+				host = roomUsers.get(0); 
 				host.WriteOne("ROLE::HOST");
 				WriteAll("CHAT::[시스템] " + host.UserName + "님이 새로운 방장이 되었습니다.");
 			}
@@ -180,7 +165,7 @@ public class Server {
 			if (!currentKeyword.isEmpty() && roomUsers.size() < 2) {
 				currentKeyword = "";
 				WriteAll("CHAT::[시스템] 인원 부족으로 게임이 종료되었습니다.");
-				WriteAll("CLEAR::"); // 화면 지우기
+				WriteAll("CLEAR::"); 
 			}
 		}
 	}
@@ -193,6 +178,9 @@ public class Server {
 		private String UserName = ""; 
 		private boolean isDrawer = false; 
 		
+		// [추가] 서버에서도 점수 관리
+		private int score = 0;
+		
 		public UserService(Socket client_socket) {
 			this.client_socket = client_socket;
 			try {
@@ -204,8 +192,8 @@ public class Server {
 		public void joinRoom(String roomName) {
 			Room targetRoom = Server.this.createRoom(roomName);
 			this.currentRoom = targetRoom;
+			this.score = 0; // 방 입장 시 점수 초기화
 			targetRoom.enterUser(this);
-			
 			broadcastJoin();
 		}
 		
@@ -215,7 +203,6 @@ public class Server {
 				if(!currentRooms.isEmpty()) {
 					WriteOne("ROOM_LIST::" + currentRooms);
 				}
-				
 				String line1 = in.readLine(); 
 				if (line1 == null || !line1.startsWith("LOGIN::")) return false;
 				this.UserName = line1.substring("LOGIN::".length()).trim();
@@ -230,7 +217,7 @@ public class Server {
 			}
 			currentRoom.WriteAll("CHAT::" + this.UserName + "님이 입장했습니다.");
 			this.WriteOne("CHAT::방 이름: " + currentRoom.roomName);
-			this.WriteOne("LOGIN::" + this.UserName); // 나 자신도 리스트에 추가
+			currentRoom.WriteAll("LOGIN::" + this.UserName); 
 		}
 		
 		public void WriteOne(String msg) {
@@ -259,28 +246,33 @@ public class Server {
 					if (msg.startsWith("ANSWER::")) {
 		                String userAnswer = msg.substring(8).trim();
 		                
-		                //정답과 일치하는지 확인
 		                if (!currentRoom.currentKeyword.isEmpty() && userAnswer.equalsIgnoreCase(currentRoom.currentKeyword)) {
-		                    
-		                    //입력한 사람이 '출제자'인지 확인
 		                    if (this.isDrawer) {
-		                        //출제자라면 게임을 끝내지 않고, 본인에게만 경고 메시지 전송
 		                        this.WriteOne("CHAT::[시스템] 출제자는 정답을 입력할 수 없습니다.");
-		                    } 
-		                    //출제자가 아닌 '참여자'가 맞힌 경우 -> 정상적인 정답 처리
-		                    else {
+		                    } else {
 		                        String answer = currentRoom.currentKeyword;
+		                        currentRoom.currentKeyword = ""; 
 		                        
-		                        currentRoom.currentKeyword = ""; //키워드 초기화 (게임 종료)
-		                        currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+		                        // [중요 수정] 점수 및 승리 로직
+		                        this.score++;
 		                        
-		                        try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
-		                        
-		                        Server.this.checkGameStart(currentRoom); //다음 라운드
+		                        if (this.score >= 10) {
+		                        	// 10점 도달 시 게임 종료 알림
+		                        	currentRoom.WriteAll("CHAT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+		                        	currentRoom.WriteAll("GAME_OVER::" + this.UserName);
+		                        	
+		                        	// 모든 유저 점수 초기화 (다음 판을 위해)
+		                        	for(UserService u : currentRoom.roomUsers) {
+		                        		u.score = 0;
+		                        	}
+		                        } else {
+		                        	// 10점 미만이면 계속 진행
+		                        	currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+			                        try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
+			                        Server.this.checkGameStart(currentRoom); 
+		                        }
 		                    }
-		                    
 		                } else {
-		                    //정답이 아니면 일반 채팅으로 전송
 		                    currentRoom.WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
 		                }
 		            }
@@ -297,12 +289,10 @@ public class Server {
 							WriteOne("CHAT::[오류] 방장만 게임을 시작할 수 있습니다.");
 						}
 					}
-					
 				} 
 			} catch (IOException e) { 
             } finally {
             	Server.this.allUsers.remove(this);
-            	
                 if (currentRoom != null) currentRoom.removeUser(this);
                 try { if(client_socket != null) client_socket.close(); } catch (Exception e) {} 
             }

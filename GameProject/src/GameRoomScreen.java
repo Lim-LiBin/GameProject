@@ -18,6 +18,8 @@ import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -68,7 +70,10 @@ public class GameRoomScreen extends JFrame {
     private Color currentColor = Color.BLACK; 
     private float currentStroke = 2.0f; 
     
-    private int score = 0; //획득 점수
+    private boolean isGameRunning = false; 
+    private int score = 0; 
+    private boolean isHost = false; 
+    
     private static final float ERASER_STROKE = 50.0f;
 
     // 디자인 상수
@@ -81,7 +86,6 @@ public class GameRoomScreen extends JFrame {
     private List<ImageIcon> profileImages = new ArrayList<>();
     private int userCount = 0; 
 
-    // 폰트 로딩
     static {
         try {
             MAIN_FONT = Font.createFont(Font.TRUETYPE_FONT, new File("Jalnan2TTF.ttf")).deriveFont(16f);
@@ -89,7 +93,6 @@ public class GameRoomScreen extends JFrame {
             ge.registerFont(MAIN_FONT);
         } catch (IOException | FontFormatException e) {
             MAIN_FONT = new Font("맑은 고딕", Font.BOLD, 16); 
-            System.out.println("폰트 로드 실패. 기본 폰트를 사용합니다.");
         }
     }
     
@@ -97,9 +100,7 @@ public class GameRoomScreen extends JFrame {
         try {
             profileImages.add(new ImageIcon(new ImageIcon("image.png").getImage().getScaledInstance(60, 60, Image.SCALE_SMOOTH)));
             profileImages.add(new ImageIcon(new ImageIcon("image3.png").getImage().getScaledInstance(60, 60, Image.SCALE_SMOOTH)));
-        } catch (Exception e) {
-            System.out.println("프로필 이미지 로드 실패: " + e.getMessage());
-        }
+        } catch (Exception e) {}
     }
 
     // --- 내부 클래스: 그림판 ---
@@ -112,19 +113,21 @@ public class GameRoomScreen extends JFrame {
         public DrawingPanel() {
             setBackground(Color.WHITE);
             setBorder(new LineBorder(Color.BLACK, 2)); 
-            setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
+            
+            // [수정] 초기 커서는 기본 화살표로 설정
+            setCursor(Cursor.getDefaultCursor());
 
             addMouseMotionListener(new MouseMotionAdapter() {
                 @Override
                 public void mouseMoved(MouseEvent e) {
-                    if (isDrawer) {
+                    if (isDrawer && isGameRunning) {
                         mousePoint = e.getPoint();
                         repaint();
                     }
                 }
                 @Override
                 public void mouseDragged(MouseEvent e) {
-                    if (isDrawer) {
+                    if (isDrawer && isGameRunning) {
                         mousePoint = e.getPoint();
                         repaint(); 
                     }
@@ -139,7 +142,12 @@ public class GameRoomScreen extends JFrame {
                 }
                 @Override
                 public void mouseEntered(MouseEvent e) {
-                    setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
+                    // [핵심 수정] 게임 중이고 + 내가 출제자일 때만 십자 커서로 변경
+                    if (isGameRunning && isDrawer) {
+                        setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
+                    } else {
+                        setCursor(Cursor.getDefaultCursor());
+                    }
                 }
             });
         }
@@ -195,7 +203,8 @@ public class GameRoomScreen extends JFrame {
                 }
             }
             
-            if (isDrawer && mousePoint != null) {
+            // 게임 중일 때만 동그라미 표시
+            if (isDrawer && isGameRunning && mousePoint != null) {
                 g2.setStroke(new BasicStroke(1.0f));
                 g2.setColor(new Color(0, 0, 0, 128));
                 int size = (int) currentStroke;
@@ -257,7 +266,15 @@ public class GameRoomScreen extends JFrame {
         loadImages(); 
 
         setTitle(roomTitle + " - " + nickname);
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); 
+        
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                checkExit(); 
+            }
+        });
+        
         setBounds(100, 100, 1280, 800);
         contentPane = new JPanel();
         contentPane.setBackground(BG_COLOR);
@@ -265,68 +282,63 @@ public class GameRoomScreen extends JFrame {
         contentPane.setLayout(new BorderLayout(20, 20));
         setContentPane(contentPane);
 
-        // ==================== [수정] 상단 패널 레이아웃 ====================
+        // ==================== 상단 패널 ====================
         JPanel topPanel = new JPanel(new BorderLayout()); 
         topPanel.setBackground(BG_COLOR);
-        topPanel.setBorder(new EmptyBorder(0, 0, 10, 0)); // 하단 여백
+        topPanel.setBorder(new EmptyBorder(0, 0, 10, 0));
 
-        // 1. [왼쪽 그룹] 방 이름 + 게임 시작 버튼
-        // - 왼쪽 여백 80px: 그림판 라인과 맞춤
         JPanel topLeftGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0)); 
         topLeftGroup.setBackground(BG_COLOR);
-        topLeftGroup.setBorder(new EmptyBorder(0, 80, 0, 0)); 
+        topLeftGroup.setBorder(new EmptyBorder(0, 0, 0, 0)); 
         
-        JLabel roomNameLabel = createStyledLabel("방 이름: " + roomTitle, 16f);
+        JButton exitBtn = createStyledButton("나가기");
+        exitBtn.setBackground(new Color(220, 50, 50)); 
+        exitBtn.setPreferredSize(new Dimension(100, 50));
+        exitBtn.addActionListener(e -> checkExit()); 
+        
+        JLabel roomNameLabel = createStyledLabel(roomTitle, 20f);
         roomNameLabel.setPreferredSize(new Dimension(150, 50));
-        roomNameLabel.setHorizontalAlignment(SwingConstants.CENTER); 
+        roomNameLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        roomNameLabel.setBackground(new Color(230, 240, 255));
+        roomNameLabel.setForeground(Color.BLACK);
+        roomNameLabel.setBorder(null);
+
+        
 
         startGameBtn = createStyledButton("게임 시작");
         startGameBtn.setPreferredSize(new Dimension(150, 50));
         startGameBtn.addActionListener(e -> sendProtocol("GAME_START::"));
         
-        // 왼쪽 그룹에는 방 이름과 버튼만 넣습니다.
+        topLeftGroup.add(exitBtn);
         topLeftGroup.add(roomNameLabel);
         topLeftGroup.add(startGameBtn);
 
-        // 2. [가운데 그룹] 제시어 (여기가 수정됨!)
-        // - 제시어를 별도의 그룹에서 빼서 BorderLayout.CENTER에 넣음
-        // - 이렇게 하면 버튼과 오른쪽 스코어 사이의 공간을 혼자 차지하며 자동으로 가운데 정렬됨
         keywordLabel = new JLabel("게임 대기 중...");
         keywordLabel.setFont(MAIN_FONT.deriveFont(Font.BOLD, 40f));
         keywordLabel.setForeground(Color.BLACK);
-        keywordLabel.setHorizontalAlignment(SwingConstants.CENTER); // 라벨 내부에서도 텍스트 가운데 정렬
+        keywordLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
-        // 3. [오른쪽 그룹] 스코어
         JPanel topRightGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         topRightGroup.setBackground(BG_COLOR);
-        topRightGroup.setPreferredSize(new Dimension(300, 50)); // 채팅창 너비와 동일
+        topRightGroup.setPreferredSize(new Dimension(300, 50)); 
         
-        startGameBtn = new JButton("게임 시작");
-        startGameBtn.setEnabled(false); //방장만 활성화됨
-        startGameBtn.addActionListener(e -> sendProtocol("GAME_START::")); 
-
-        //keywordLabel = new JLabel("게임 대기 중...");
-        //keywordLabel.setFont(keywordLabel.getFont().deriveFont(20.0f));
-        scoreLabel = new JLabel("SCORE: " + score);
         scoreLabel = createStyledLabel("SCORE: 0", 16f);
         scoreLabel.setPreferredSize(new Dimension(150, 50)); 
         scoreLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
         topRightGroup.add(scoreLabel);
 
-        // [최종 배치]
-        topPanel.add(topLeftGroup, BorderLayout.WEST);   // 왼쪽: 버튼들
-        topPanel.add(keywordLabel, BorderLayout.CENTER); // 가운데: 제시어 (남은 공간의 중앙)
-        topPanel.add(topRightGroup, BorderLayout.EAST);  // 오른쪽: 스코어
+        topPanel.add(topLeftGroup, BorderLayout.WEST);   
+        topPanel.add(keywordLabel, BorderLayout.CENTER); 
+        topPanel.add(topRightGroup, BorderLayout.EAST);  
 
         contentPane.add(topPanel, BorderLayout.NORTH);
-        // ===================================================================
 
         // ==================== 중앙 패널 ====================
         JPanel centerPanel = new JPanel(new BorderLayout(20, 0));
         centerPanel.setBackground(BG_COLOR);
 
-        // ----- 왼쪽 도구 패널 -----
+        // 도구
         JPanel toolPanel = new JPanel();
         toolPanel.setLayout(new BoxLayout(toolPanel, BoxLayout.Y_AXIS));
         toolPanel.setBackground(BG_COLOR);
@@ -342,6 +354,7 @@ public class GameRoomScreen extends JFrame {
         
         JButton eraserButton = createToolButton("지우개");
         eraserButton.addActionListener(e -> {
+            if (!isGameRunning) return; 
             currentColor = Color.WHITE;
             currentStroke = ERASER_STROKE; 
             drawingCanvas.setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
@@ -350,18 +363,19 @@ public class GameRoomScreen extends JFrame {
         toolPanel.add(eraserButton); toolPanel.add(Box.createVerticalStrut(10));    
         
         JButton clearButton = createToolButton("삭제");
-        clearButton.addActionListener(e -> sendProtocol("CLEAR::")); 
+        clearButton.addActionListener(e -> {
+            if (isGameRunning) sendProtocol("CLEAR::");
+        }); 
         toolPanel.add(clearButton);
 
         toolPanel.add(Box.createVerticalGlue());
-
         centerPanel.add(toolPanel, BorderLayout.WEST);
 
-        // ----- 가운데 그림판 -----
+        // 그림판
         drawingCanvas = new DrawingPanel();
         centerPanel.add(drawingCanvas, BorderLayout.CENTER);
 
-        // ----- 오른쪽 채팅 패널 -----
+        // 채팅
         JPanel chatPanel = new JPanel(new BorderLayout(0, 10));
         chatPanel.setBackground(BG_COLOR);
         chatPanel.setPreferredSize(new Dimension(300, 0)); 
@@ -419,7 +433,7 @@ public class GameRoomScreen extends JFrame {
         drawingCanvas.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (isDrawer) {
+                if (isDrawer && isGameRunning) {
                     drawingCanvas.startStroke(e.getPoint(), currentColor, currentStroke);
                     sendProtocol("DRAW::" + e.getX() + "," + e.getY() + ",START");
                 }
@@ -429,7 +443,7 @@ public class GameRoomScreen extends JFrame {
         drawingCanvas.addMouseMotionListener(new MouseMotionAdapter() {
             @Override
             public void mouseDragged(MouseEvent e) {
-                if (isDrawer) {
+                if (isDrawer && isGameRunning) {
                     drawingCanvas.addPointToStroke(e.getPoint());
                     sendProtocol("DRAW::" + e.getX() + "," + e.getY() + ",DRAG");
                 }
@@ -437,6 +451,25 @@ public class GameRoomScreen extends JFrame {
         });
         
         connectToServer();
+    }
+    
+    private void checkExit() {
+        if (isGameRunning) {
+            JOptionPane.showMessageDialog(this, "게임 진행 중에는 나갈 수 없습니다!", "경고", JOptionPane.WARNING_MESSAGE);
+        } else {
+            int confirm = JOptionPane.showConfirmDialog(this, "정말 나가시겠습니까?", "나가기", JOptionPane.YES_NO_OPTION);
+            if (confirm == JOptionPane.YES_OPTION) {
+                try {
+                    if (socket != null && !socket.isClosed()) {
+                        socket.close(); 
+                    }
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+                new CreateRoomScreen(nickname).setVisible(true);
+                dispose(); 
+            }
+        }
     }
     
     // --- UI 헬퍼 메소드들 ---
@@ -458,6 +491,8 @@ public class GameRoomScreen extends JFrame {
         btn.setFocusPainted(false);
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btn.addActionListener(e -> {
+            if (!isGameRunning) return;
+            
             currentColor = color; 
             currentStroke = 2.0f; 
             drawingCanvas.setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
@@ -500,7 +535,6 @@ public class GameRoomScreen extends JFrame {
         label.setOpaque(true);
         label.setBackground(BTN_COLOR);
         label.setForeground(TEXT_COLOR);
-        // 패딩(내부 여백) 제거: setPreferredSize로 크기 제어
         label.setBorder(new LineBorder(BTN_COLOR, 2, true)); 
         return label;
     }
@@ -514,6 +548,8 @@ public class GameRoomScreen extends JFrame {
     }
     
     private void setupRound(boolean isMeDrawer, String info) {
+        this.isGameRunning = true; // 게임 중 상태로 변경
+        
         this.isDrawer = isMeDrawer;
         drawingCanvas.clear();
         currentPenColor = Color.BLACK; 
@@ -523,10 +559,13 @@ public class GameRoomScreen extends JFrame {
         drawingCanvas.setEnabled(isDrawer);
         startGameBtn.setEnabled(false); 
 
+        // [추가] 라운드 시작 시 출제자면 십자 커서, 아니면 기본 커서
         if (isDrawer) {
             keywordLabel.setText(info); 
+            drawingCanvas.setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
             appendToChat("[알림] 당신은 '출제자'입니다. 제시어를 그려주세요!");
         } else {
+            drawingCanvas.setCursor(Cursor.getDefaultCursor());
             try {
                 int len = Integer.parseInt(info);
                 StringBuilder sb = new StringBuilder();
@@ -572,7 +611,7 @@ public class GameRoomScreen extends JFrame {
                 EventQueue.invokeLater(() -> processMessage(message));
             }
         } catch (IOException e) {
-            appendToChat("[시스템] 서버 연결 종료.");
+            appendToChat("[시스템] 서버와 연결이 끊어졌습니다.");
         } finally {
             try { if(socket != null) socket.close(); } catch(IOException e) {}
         }
@@ -591,31 +630,47 @@ public class GameRoomScreen extends JFrame {
             setupRound(false, lengthStr);
         } 
         else if (msg.startsWith("NOTICE_CORRECT::")) {
-            // [중요 수정] JOptionPane 제거 (Blocking 방지)
-            // 대신 라벨과 채팅으로 안내
             String content = msg.substring("NOTICE_CORRECT::".length());
             
-            //정답자 이름 추출
             String winner = "";
             int index = content.indexOf("님이");
-            
-            if(index != -1) {
-            	winner = content.substring(0, index);
-            }
+            if(index != -1) winner = content.substring(0, index);
             
             if (this.nickname.equals(winner) && !isDrawer) {
-            	score++;
-            	scoreLabel.setText("SCORE: " + score);
-            	appendToChat("축하합니다! 정답입니다!"); //정답자에게 알림
-            } else { //정답자가 아닌 사람들에게 알림
-            	appendToChat(content);
+                score++;
+                scoreLabel.setText("SCORE: " + score);
+                appendToChat("축하합니다! 정답입니다!"); 
+            } else { 
+                appendToChat(content);
             }
             
             keywordLabel.setText("정답! 다음 라운드 준비 중...");
             keywordLabel.setForeground(Color.RED);
             drawingCanvas.clear(); 
             startGameBtn.setEnabled(false); 
-        } 
+        }
+        else if (msg.startsWith("GAME_OVER::")) {
+        	// [핵심] 게임 종료 시 모든 상태 초기화
+        	this.isGameRunning = false; 
+        	this.isDrawer = false; 
+        	
+        	// 커서 즉시 기본으로 변경
+        	drawingCanvas.setCursor(Cursor.getDefaultCursor());
+        	drawingCanvas.clear();
+        	
+        	String winner = msg.substring("GAME_OVER::".length());
+        	JOptionPane.showMessageDialog(this, winner + "님이 10점을 달성하여 우승했습니다!", "게임 종료", JOptionPane.INFORMATION_MESSAGE);
+        	
+        	keywordLabel.setText("게임 대기 중...");
+        	keywordLabel.setForeground(Color.BLACK);
+        	score = 0;
+        	scoreLabel.setText("SCORE: 0");
+        	appendToChat("[시스템] 새 게임을 시작할 준비가 되었습니다.");
+        	
+        	if (isHost) {
+        		startGameBtn.setEnabled(true);
+        	}
+        }
         else if (msg.startsWith("DRAW::")) {
             try {
                 String[] parts = msg.substring(6).split(",");
@@ -643,22 +698,36 @@ public class GameRoomScreen extends JFrame {
         else if (msg.startsWith("CLEAR::")) {
             drawingCanvas.clear();
         }
-        else if (msg.startsWith("ROLE::HOST")) { //방장 프로토콜
-        	startGameBtn.setEnabled(true);
-        	setTitle(roomTitle + " - " + nickname + " (방장)");
+        else if (msg.startsWith("ROLE::HOST")) { 
+            startGameBtn.setEnabled(true);
+            setTitle(roomTitle + " - " + nickname + " (방장)");
+            isHost = true;
         }
-        else if (msg.startsWith("ROLE::GUEST")) { //방장 프로토콜
-        	startGameBtn.setEnabled(false);
-        	setTitle(roomTitle + " - " + nickname);
+        else if (msg.startsWith("ROLE::GUEST")) { 
+            startGameBtn.setEnabled(false);
+            setTitle(roomTitle + " - " + nickname);
+            isHost = false;
         }
         else if (msg.startsWith("LOGIN::")) {
-            String newName = msg.substring(7);
-            userListPanel.add(new UserStatusPanel(newName));
-            userListPanel.revalidate();
-            userListPanel.repaint();
+            String newName = msg.substring(7).trim(); 
+            boolean exists = false;
+            for (int i = 0; i < userListPanel.getComponentCount(); i++) {
+                Component comp = userListPanel.getComponent(i);
+                if (comp instanceof UserStatusPanel) {
+                    if (newName.equals(comp.getName())) {
+                        exists = true;
+                        break;
+                    }
+                }
+            }
+            if (!exists) {
+                userListPanel.add(new UserStatusPanel(newName));
+                userListPanel.revalidate();
+                userListPanel.repaint();
+            }
         }
         else if (msg.startsWith("LOGOUT::")) {
-            String nameToRemove = msg.substring(8);
+            String nameToRemove = msg.substring(8).trim(); 
             for (int i = 0; i < userListPanel.getComponentCount(); i++) {
                 Component comp = userListPanel.getComponent(i);
                 if (comp instanceof UserStatusPanel) {
@@ -667,7 +736,7 @@ public class GameRoomScreen extends JFrame {
                         userListPanel.remove(panel);
                         userListPanel.revalidate();
                         userListPanel.repaint();
-                        break;
+                        break; 
                     }
                 }
             }
