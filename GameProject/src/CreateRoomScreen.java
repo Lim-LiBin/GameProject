@@ -37,23 +37,33 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
 
+//게임 대기실(로비) 화면
+//로그인 성공 후 진입하는 화면
+//실시간 방 목록 확인, 로비 채팅, 방 생성/참가 기능 수행
 public class CreateRoomScreen extends JFrame {
 
 	private static final long serialVersionUID = 1L;
 	private JPanel contentPane;
+	
+	//방 목록 리스트 컴포넌트
 	private JList<String> roomList;
-	private DefaultListModel<String> listModel; //방 목록 데이터를 관리할 모델
+	//방 목록 데이터를 동적으로 관리하기 위한 모델 객체
+	private DefaultListModel<String> listModel;
 	private Font baseFont; // 폰트 변수
 	
-	//소켓 통신 변수
+	//채팅 관련 UI 컴포넌트
+	private JTextArea chatDisplay; //서버로부터 수신한 채팅 로그를 보여주는 영역
+	private JTextField chatInput; //사용자가 메시지를 입력하는 영역
+	private JButton chatSendBtn; //전송 버튼
+	
+	//소켓 통신을 위한 입출력 스트림
 	private Socket socket;
 	private PrintWriter out;
 	private BufferedReader in;
+	
+	//현재 로그인한 사용자 ID
 	private String nickname;
 
-	/**
-	 * Launch the application.
-	 */
 	public static void main(String[] args) {
 		EventQueue.invokeLater(new Runnable() {
 			public void run() {
@@ -67,56 +77,57 @@ public class CreateRoomScreen extends JFrame {
 		});
 	}
 
-	/**
-	 * Create the frame.
-	 */
+	//UI 구성요소 초기화 및 서버 연결 프로세스 시작
 	public CreateRoomScreen(String nickname) {
 		this.nickname = nickname;
 		setTitle("캐치마인드 - 로비");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		setBounds(100, 100, 800, 600);
 		
-		//폰트 로드
+		//외부 폰트 로드
 		try {
 			File fontFile = new File("Jalnan2TTF.ttf");
 			baseFont = Font.createFont(Font.TRUETYPE_FONT, fontFile);
 			GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
 			ge.registerFont(baseFont);
 		} catch(IOException | FontFormatException e) {
+			//실패 시 기본 폰트로 대체
 			System.out.println("폰트 로드 실패. 기본 폰트 사용.");
 	        baseFont = new Font("맑은 고딕", Font.BOLD, 12);
 		}
 
+		//전체 패널 설정
 		contentPane = new JPanel();
 		contentPane.setBackground(new Color(230, 240, 255)); // 배경색 설정
-		contentPane.setBorder(new EmptyBorder(10, 10, 10, 10)); // 여백 약간 늘림
-		contentPane.setLayout(new BorderLayout(10, 10)); // 간격 10으로 조정
+		contentPane.setBorder(new EmptyBorder(10, 10, 10, 10)); //윈도우 테두리와의 여백
+		contentPane.setLayout(new BorderLayout(10, 10)); //컴포넌트 간 간격 확보
 		setContentPane(contentPane);
 		
-		//오른쪽 패널 (버튼 2개 + 환영 메시지)
+		//EAST - 사용자 정보 및 기능 버튼 패널
 		JPanel eastPanel = new JPanel(new GridBagLayout()); 
 		eastPanel.setPreferredSize(new Dimension(200, 0));
 		eastPanel.setOpaque(false); 
 		
+		//내부 컴포넌트를 수직으로 쌓기 위해 BoxLayout 사용
 		JPanel innerPanel = new JPanel();
 		innerPanel.setLayout(new BoxLayout(innerPanel, BoxLayout.Y_AXIS));
 		innerPanel.setOpaque(false);
 		
-		// 버튼 패널 설정
+		// 버튼 그룹 패널 (GridLayout 2행 1열)
 		JPanel buttonPanel = new JPanel(new GridLayout(2, 1, 10, 10));
 		buttonPanel.setOpaque(false);
-		
-		//버튼 패널 사이즈 (200, 140 vs 180, 90)
 		buttonPanel.setPreferredSize(new Dimension(180, 90)); 
 		buttonPanel.setMaximumSize(new Dimension(180, 90));
-		buttonPanel.setAlignmentX(Component.CENTER_ALIGNMENT); // BoxLayout 내 가운데 정렬
+		buttonPanel.setAlignmentX(Component.CENTER_ALIGNMENT); // BoxLayout 내 중앙 정렬
 
+		//방 만들기 버튼
 		JButton createRoombtn = new JButton("방 만들기");
 		createRoombtn.setFont(baseFont.deriveFont(18f));
 		createRoombtn.setBackground(new Color(0, 51, 153));
 		createRoombtn.setForeground(Color.WHITE);
 		createRoombtn.setFocusPainted(false);
 		
+		//참가하기 버튼
 		JButton joinRoombtn = new JButton("참가하기");
 		joinRoombtn.setFont(baseFont.deriveFont(18f));
 		joinRoombtn.setBackground(new Color(0, 51, 153));
@@ -126,19 +137,20 @@ public class CreateRoomScreen extends JFrame {
 		buttonPanel.add(createRoombtn);
 		buttonPanel.add(joinRoombtn);
 		
-		//환영 메시지 설정
+		//환영 메시지 label
 		JLabel welcomeLabel = new JLabel(nickname + "님 환영합니다!");
 		welcomeLabel.setFont(baseFont.deriveFont(20f));
 		welcomeLabel.setForeground(new Color(0, 51, 153));
 		welcomeLabel.setAlignmentX(Component.CENTER_ALIGNMENT); 
 		
-		//이미지 설정
+		//캐릭터 이미지 표시
 		JLabel imageLabel = new JLabel();
 		String imageName = "image.png"; 
 		ImageIcon icon = new ImageIcon(imageName);
 		
 		if (icon.getIconWidth() > 0) {
 			Image img = icon.getImage();
+			//이미지 깨짐 방지를 위해 SCALE_SMOOTH 사용
 			Image resizedImg = img.getScaledInstance(180, -1, Image.SCALE_SMOOTH);
 			icon = new ImageIcon(resizedImg);
 			imageLabel.setIcon(icon);
@@ -147,18 +159,19 @@ public class CreateRoomScreen extends JFrame {
 		}
 		imageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-		//innerPanel에 순서대로 조립
-		innerPanel.add(buttonPanel);                  // 버튼 (작은 크기 유지)
-		innerPanel.add(Box.createVerticalStrut(30));  // 간격
-		innerPanel.add(welcomeLabel);                 // 텍스트
-		innerPanel.add(Box.createVerticalStrut(10));  // 간격
-		innerPanel.add(imageLabel);                   // 이미지
+		//컴포넌트 조립
+		//Box.createVerticalStrut으로 요소 간 간격 조정
+		innerPanel.add(buttonPanel);                
+		innerPanel.add(Box.createVerticalStrut(30));  
+		innerPanel.add(welcomeLabel);                 
+		innerPanel.add(Box.createVerticalStrut(10));  
+		innerPanel.add(imageLabel);         
 		
-		//최종적으로 eastPanel 중앙에 innerPanel 배치
+		//eastPanel에 추가
 		eastPanel.add(innerPanel);
 
-		//왼쪽 영역 (방 목록 + 채팅 창)
-		//방 목록 패널
+		//CENTER - 방 목록, 채팅창
+		//상단 - 방 목록 패널
 		JPanel roomListPanel = new JPanel(new BorderLayout());
 		roomListPanel.setOpaque(false);
 
@@ -166,76 +179,102 @@ public class CreateRoomScreen extends JFrame {
 		roomBorder.setTitleFont(baseFont.deriveFont(14f));
 		roomListPanel.setBorder(roomBorder);
 		
+		//listModel 초기화
+		//여기에 데이터를 추가하면 JList에 자동으로 반영됨
 		listModel = new DefaultListModel<>();
 		roomList = new JList<>(listModel);
 		
 		roomList.setFont(baseFont.deriveFont(16f));
-		roomList.setFixedCellHeight(40);
+		roomList.setFixedCellHeight(40); //행 높이 고정
 		
 		roomList.setBackground(Color.WHITE);
-		roomList.setSelectionBackground(new Color(200, 220, 255));
+		roomList.setSelectionBackground(new Color(200, 220, 255)); //선택된 항목 색상 설정
 		roomList.setBorder(new LineBorder(new Color(180, 200, 230), 1));
 		
+		//JScrollPane을 통해 스크롤 기능 추가
 		roomListPanel.add(new JScrollPane(roomList), BorderLayout.CENTER);
 		
-		//채팅 패널
+		//하단 - 채팅 패널
 		JPanel chatPanel = new JPanel(new BorderLayout());
 		chatPanel.setOpaque(false);
-		
 		TitledBorder chatBorder = new TitledBorder("채팅");
 		chatBorder.setTitleFont(baseFont.deriveFont(14f));
 		chatPanel.setBorder(chatBorder);
 		
-		JTextArea chatDisplay = new JTextArea();
-		chatDisplay.setEditable(false);
-		chatDisplay.setFont(new Font("맑은 고딕", Font.PLAIN, 14));
+		//채팅 내역 표시 영역
+		chatDisplay = new JTextArea();
+		chatDisplay.setEditable(false); //수정 불가 설정
+		chatDisplay.setFont(baseFont.deriveFont(14f));
 		
-		// 입력창 부분
+		//입력 영역 (채팅 입력창 + 전송 버튼)
 		JPanel inputPanel = new JPanel(new BorderLayout(5, 0));
 		inputPanel.setOpaque(false);
 		
-		JTextField sender = new JTextField();
-		sender.setFont(new Font("맑은 고딕", Font.PLAIN, 14));
+		//채팅 입력창 설정
+		chatInput = new JTextField();
+		chatInput.setFont(baseFont.deriveFont(14f));
 		
-		JButton sender_btn = new JButton("전송");
-		sender_btn.setFont(baseFont.deriveFont(14f));
-		sender_btn.setBackground(new Color(0, 51, 153));
-		sender_btn.setForeground(Color.WHITE);
+		//전송 버튼 설정
+		JButton chatSendBtn = new JButton("전송");
+		chatSendBtn.setFont(baseFont.deriveFont(14f));
+		chatSendBtn.setBackground(new Color(0, 51, 153));
+		chatSendBtn.setForeground(Color.WHITE);
 		
-		inputPanel.add(sender, BorderLayout.CENTER);
-		inputPanel.add(sender_btn, BorderLayout.EAST);
+		//입력 영역에 입력창, 전송 버튼 추가
+		inputPanel.add(chatInput, BorderLayout.CENTER);
+		inputPanel.add(chatSendBtn, BorderLayout.EAST);
 		
+		//채팅 패널에 채팅 내역 표시 영역, 입력 영역 추가
 		chatPanel.add(new JScrollPane(chatDisplay), BorderLayout.CENTER);
 		chatPanel.add(inputPanel, BorderLayout.SOUTH);
 		
-		// 스플릿 패널 설정
+		//상하 분할 패널 구성하기 위해 SplitPane 설정
+		//사용자가 경계선을 드래그하여 방 목록과 채팅창의 비율을 조절할 수 있게 함
 		JSplitPane verticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 		verticalSplit.setTopComponent(roomListPanel);
 		verticalSplit.setBottomComponent(chatPanel);
 		verticalSplit.setDividerSize(5); // 구분선 두께
-		verticalSplit.setResizeWeight(0.5); // 위쪽(방 목록) 비율
+		verticalSplit.setResizeWeight(0.5); // 초기 비율 50:50
 
-		//화면이 다 그려진 뒤에 구분선 위치를 50%로 강제 설정
+		//UI가 모두 그려진 직후 구분선 위치를 강제로 50%로 맞추기 위해 invokeLater 사용
 		SwingUtilities.invokeLater(new Runnable() {
 			public void run() {
 				verticalSplit.setDividerLocation(0.5); 
 			}
 		});
 		
-		// 스플릿 패널 배경 투명화
+		//SplitPane 배경 투명화 처리용 래퍼 패널
 		JPanel splitContainer = new JPanel(new BorderLayout());
 		splitContainer.setOpaque(false);
 		splitContainer.add(verticalSplit);
 		
-		// 컨텐트팬에 붙이기
+		//메인 패널에 배치
 		contentPane.add(eastPanel, BorderLayout.EAST);
 		contentPane.add(splitContainer, BorderLayout.CENTER);
 		
-		// 방 참가하기 버튼
+		//이벤트 리스너 등록
+		//채팅 전송 이벤트 리스너 (엔터키, 버튼 클릭 공용)
+		ActionListener sendAction = new ActionListener() {
+			public void actionPerformed(ActionEvent e) {
+				String msg = chatInput.getText().trim();
+				//빈 메시지가 아니고, 서버 연결이 유효할 때만 전송
+				if (!msg.isEmpty()&& out != null) {
+					//서버로 로비 채팅 프로토콜 전송
+					out.println("LOBBY_CHAT::" + msg);
+					chatInput.setText(""); //입력창 초기화
+				}
+			}
+		};
+		chatInput.addActionListener(sendAction);
+		chatSendBtn.addActionListener(sendAction);
+		
+		//방 참가하기 버튼 이벤트 리스너
 		joinRoombtn.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
+				//리스트에서 현재 선택된 방 이름 가져오기
 				String selectedRoom = roomList.getSelectedValue();
-						
+					
+				//선택된 방이 없다면
 				if (selectedRoom == null) {
 					JOptionPane.showMessageDialog(CreateRoomScreen.this, "참여할 방을 선택하세요.", "오류", JOptionPane.ERROR_MESSAGE);
 					return;
@@ -244,7 +283,7 @@ public class CreateRoomScreen extends JFrame {
 			}
 		});
 				
-		// 방 만들기 버튼
+		//방 만들기 버튼 이벤트 리스너
 			createRoombtn.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent e) {
 				String newRoomName = JOptionPane.showInputDialog("새 방 이름을 입력하세요:");
@@ -252,34 +291,38 @@ public class CreateRoomScreen extends JFrame {
 					return;
 				}
 						
-				//서버에 방 생성 요청 (NullPointerException 방지)
+				//서버에 방 생성 요청 프로토콜 전송
 				if (out != null) {
 					out.println("CREATE_ROOM::" + newRoomName);
 				}
 						
-				// 만든 사람은 바로 입장
+				//방 만든 사람은 즉시 해당 방으로 입장 처리
 				enterGameRoom(newRoomName);
 			}
 		});
 				
-		//서버 연결 시작
+		//초기화 완료 후 서버 연결 시도
 		connectToLobbyServer();
 	}
 			
-			
+	//서버 연결 메서드
 	private void connectToLobbyServer() {
 		new Thread(new Runnable() {
 			public void run() {
 				try {
-					socket = new Socket("localhost", 9999); 
+					socket = new Socket("localhost", 9999); //서버 접속 시도
 					out = new PrintWriter(socket.getOutputStream(), true);
 					in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 					
+					//로그인 프로토콜 전송
 					out.println("LOGIN::" + nickname);
 					
+					//서버 메시지 수신 루프
 					String msg;
 					while((msg = in.readLine()) != null) {
 						final String message = msg;
+						
+						//수신된 메시지로 UI를 갱신해야 하므로 invokeLater 사용
 						SwingUtilities.invokeLater(new Runnable() {
 							public void run() {
 								processLobbyMessage(message);
@@ -287,32 +330,56 @@ public class CreateRoomScreen extends JFrame {
 						});
 					}
 				} catch (Exception e) {
-					e.printStackTrace();
+					System.out.println("서버와의 연결이 종료되었습니다.");
+					JOptionPane.showMessageDialog(null, "서버와 연결이 끊어졌습니다.");
+					System.exit(0);
 				}
 			}
 		}).start();
 	}
 			
+	//프로토콜 처리 메서드
+	//서버로부터 받은 메시지를 분석하여 알맞은 동작 수행
 	private void processLobbyMessage(String msg) {
+		//새로운 방 생성 알림
 		if (msg.startsWith("NEW_ROOM::")) {
 			String roomName = msg.substring("NEW_ROOM::".length());
+			
+			//현재 리스트에 없는 방 이름일 경우에만 추가
 			if (!listModel.contains(roomName)) {
 				listModel.addElement(roomName);
 			}
-		} else if (msg.startsWith("ROOM_LIST::")) {
+		} 
+		//접속 시 현재 개설된 전체 방 목록 수신
+		else if (msg.startsWith("ROOM_LIST::")) {
+			//콤마(,)로 구분된 방 이름 문자열을 파싱하여 배열로 변환
 			String[] rooms = msg.substring("ROOM_LIST::".length()).split(",");
-			listModel.clear();
+			listModel.clear(); //기존 목록 초기화
+			
 			for(String r : rooms) {
+				//빈 문자열이 아니고, 중복되지 않는 방만 추가
 				if(!r.trim().isEmpty() && !listModel.contains(r)) {
 					listModel.addElement(r);
 				}
 			}
 		}
-	}
+		//로비 전체 채팅 메시지 수신
+		else if (msg.startsWith("LOBBY_CHAT::")) {
+			String chatMsg = msg.substring("LOBBY_CHAT::".length());
 			
+			//채팅창에 메시지 추가
+			chatDisplay.append(chatMsg + "\n");
+			
+			//스크롤을 자동으로 최하단으로 이동시켜 최신 메시지 표시
+			chatDisplay.setCaretPosition(chatDisplay.getDocument().getLength());
+		}
+	}
+		
+	//게임방 입장 처리
+	//현재 로비 화면을 닫고, 실제 게임 화면으로 이동
 	private void enterGameRoom(String roomName) {
 		GameRoomScreen gameRoom = new GameRoomScreen(nickname, roomName, "localhost", 9999);
 		gameRoom.setVisible(true);
-		dispose(); // 로비 창을 닫기
+		dispose(); //현재 로비 창 리소스 해제
 	}
 }
