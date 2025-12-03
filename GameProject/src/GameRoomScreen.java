@@ -832,23 +832,4 @@ public class GameRoomScreen extends JFrame {
         chatDisplay.append(text + "\n");
         chatDisplay.setCaretPosition(chatDisplay.getDocument().getLength());
     }
-    
-    /*
-    // 프로그램 시작 지점 (테스트용)
-    public static void main(String[] args) {
-        EventQueue.invokeLater(new Runnable() {
-            public void run() {
-                try {
-                    // 게임 시작 전 닉네임을 먼저 입력받음
-                    String nickname = JOptionPane.showInputDialog("닉네임을 입력하세요", "Guest");
-                    if (nickname != null && !nickname.isEmpty()) {
-                        // 닉네임이 입력되면 게임 화면을 생성하고 표시
-                        GameRoomScreen frame = new GameRoomScreen(nickname, "테스트 방", "localhost", 9999);
-                        frame.setVisible(true);
-                    }
-                } catch (Exception e) {}
-            }
-        });
-    }
-    */
 }

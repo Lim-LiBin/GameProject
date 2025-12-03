@@ -279,7 +279,11 @@ public class CreateRoomScreen extends JFrame {
 					JOptionPane.showMessageDialog(CreateRoomScreen.this, "참여할 방을 선택하세요.", "오류", JOptionPane.ERROR_MESSAGE);
 					return;
 				}
-				enterGameRoom(selectedRoom);
+				
+				if (out != null) {
+					out.println("CHECK_ROOM::" + selectedRoom);
+					return;
+				}
 			}
 		});
 				
@@ -362,6 +366,14 @@ public class CreateRoomScreen extends JFrame {
 					listModel.addElement(r);
 				}
 			}
+		}
+		else if (msg.startsWith("JOIN_OK::")) {
+			String roomName = msg.substring("JOIN_OK::".length());
+			enterGameRoom(roomName);
+		}
+		else if (msg.startsWith("JOIN_FAIL::")) {
+			String reason = msg.substring("JOIN_FAIL::".length());
+			JOptionPane.showMessageDialog(this, reason, "입장 불가", JOptionPane.WARNING_MESSAGE);
 		}
 		//로비 전체 채팅 메시지 수신
 		else if (msg.startsWith("LOBBY_CHAT::")) {

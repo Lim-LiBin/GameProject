@@ -128,6 +128,7 @@ public class Server {
 	    String currentKeyword = ""; //현재 라운드의 정답
 	    UserService host = null; //방장 (게임 시작 제어권 보유)
 	    int nextDrawerIndex = 0; //라운드마다 출제자를 균등하게 배분하기 위한 인덱스
+	    boolean isPlaying = false;
 	    
 	    //제시어 목록
 	    private String[] keywords = {
@@ -160,6 +161,8 @@ public class Server {
 			
 			//이미 게임 중이면 중복 시작 방지
 			if (!currentKeyword.isEmpty()) return;
+			
+			this.isPlaying = true;
 			
 			//출제자 선정 로직
 			//인덱스를 인원수로 나눈 나머지를 사용하여 순환 처리
@@ -314,6 +317,24 @@ public class Server {
 					    continue;
 					}
 					
+					if (msg.startsWith("CHECK_ROOM::")) {
+					    String targetRoomName = msg.substring("CHECK_ROOM::".length()).trim();
+					    if (Server.this.RoomMap.containsKey(targetRoomName)) {
+					        Room r = Server.this.RoomMap.get(targetRoomName);
+					        if (r.isPlaying) {
+					            // 게임 중이면 '불가능' 신호 보냄
+					            WriteOne("JOIN_FAIL::게임이 이미 진행 중입니다.");
+					        } else {
+					            // 대기 중이면 '가능' 신호 보냄
+					            WriteOne("JOIN_OK::" + targetRoomName);
+					        }
+					    } else {
+					        // 방이 없으면(혹시 모를 오류) 입장 처리(새로 만들기) 해도 됨
+					        WriteOne("JOIN_OK::" + targetRoomName);
+					    }
+					    continue;
+					}
+					
 					//아래 로직은 방에 입장한 상태여야 함
 					if (currentRoom == null) continue;
 					
@@ -333,13 +354,15 @@ public class Server {
 		                        String answer = currentRoom.currentKeyword;
 		                        currentRoom.currentKeyword = ""; 
 		                        
-		                        // [중요 수정] 점수 및 승리 로직
+		                        //점수 및 승리 로직
 		                        this.score++;
-		                        
+		                        currentRoom.WriteAll("SCORE_UPDATE::" + this.UserName + "," + this.score);		                        
 		                        if (this.score >= 10) {
 		                        	// 10점 도달 시 게임 종료 알림
 		                        	currentRoom.WriteAll("CHAT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
 		                        	currentRoom.WriteAll("GAME_OVER::" + this.UserName);
+		                        	
+		                        	currentRoom.isPlaying = false;
 		                        	
 		                        	// 모든 유저 점수 초기화 (다음 판을 위해)
 		                        	for(UserService u : currentRoom.roomUsers) {
