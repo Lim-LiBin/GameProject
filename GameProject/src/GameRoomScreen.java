@@ -11,6 +11,7 @@ import java.awt.FontFormatException;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Point;
 import java.awt.RenderingHints;
@@ -220,12 +221,13 @@ public class GameRoomScreen extends JFrame {
         private static final long serialVersionUID = 1L;
         JLabel nameLabel;
         JLabel imageLabel;
+        JLabel scoreLabel; //점수 표시 라벨
 
         public UserStatusPanel(String userName) {
             setLayout(new BorderLayout(5, 5));
             setBackground(Color.WHITE);
             setBorder(new LineBorder(BTN_COLOR, 2, true));
-            setPreferredSize(new Dimension(100, 120));
+            setPreferredSize(new Dimension(100, 140));
             setName(userName); 
 
             ImageIcon profileIcon = null;
@@ -237,14 +239,31 @@ public class GameRoomScreen extends JFrame {
             imageLabel = new JLabel(profileIcon);
             imageLabel.setHorizontalAlignment(SwingConstants.CENTER);
             imageLabel.setBorder(new EmptyBorder(10, 0, 0, 0));
+            
+            //이름과 점수를 담을 하단 패널
+            JPanel bottomInfoPanel = new JPanel(new GridLayout(2, 1));
+            bottomInfoPanel.setBackground(Color.WHITE);
 
             nameLabel = new JLabel(userName);
             nameLabel.setFont(MAIN_FONT.deriveFont(14f));
             nameLabel.setHorizontalAlignment(SwingConstants.CENTER);
-            nameLabel.setBorder(new EmptyBorder(0, 0, 10, 0));
+            //nameLabel.setBorder(new EmptyBorder(0, 0, 10, 0));
+            
+            scoreLabel = new JLabel("SCORE: 0");
+            scoreLabel.setFont(MAIN_FONT.deriveFont(12f));
+            scoreLabel.setForeground(Color.BLUE);
+            scoreLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            
+            bottomInfoPanel.add(nameLabel);
+            bottomInfoPanel.add(scoreLabel);
 
-            add(imageLabel, BorderLayout.CENTER);
-            add(nameLabel, BorderLayout.SOUTH);
+            add(imageLabel, BorderLayout.NORTH);
+            add(bottomInfoPanel, BorderLayout.CENTER);
+        }
+        
+      //점수 업데이트 메소드
+        public void updateScore(int newScore) {
+        	scoreLabel.setText("SCORE: " + newScore);
         }
     }
 
@@ -400,7 +419,7 @@ public class GameRoomScreen extends JFrame {
         userListPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 20, 0)); 
         userListPanel.setBackground(BG_COLOR);
         userListPanel.setBorder(new EmptyBorder(0, 80, 0, 0)); 
-        userListPanel.setPreferredSize(new Dimension(0, 130)); 
+        userListPanel.setPreferredSize(new Dimension(0, 170)); 
         
         JScrollPane userListScrollPane = new JScrollPane(userListPanel);
         userListScrollPane.setBackground(BG_COLOR);
@@ -604,8 +623,8 @@ public class GameRoomScreen extends JFrame {
             }
             
             if (this.nickname.equals(winner) && !isDrawer) {
-            	score++;
-            	scoreLabel.setText("SCORE: " + score);
+            	//score++;
+            	//scoreLabel.setText("SCORE: " + score);
             	appendToChat("축하합니다! 정답입니다!"); //정답자에게 알림
             } else { //정답자가 아닌 사람들에게 알림
             	appendToChat(content);
@@ -671,6 +690,26 @@ public class GameRoomScreen extends JFrame {
                     }
                 }
             }
+        } else if (msg.startsWith("SCORE_UPDATE::")) { //점수 업데이트 처리
+        	String[] parts = msg.substring("SCORE_UPDATE::".length()).split(",");
+        	String userName = parts[0];
+        	int newScore = Integer.parseInt(parts[1]);
+        	
+        	//유저 목록 패널을 뒤져서 해당 유저 찾기
+        	for (Component comp : userListPanel.getComponents()) {
+        		if (comp instanceof UserStatusPanel) {
+        			UserStatusPanel panel = (UserStatusPanel) comp;
+        			if (panel.getName().equals(userName)) {
+        				panel.updateScore(newScore); //점수 갱신
+        				break;
+        			}
+        		}
+        	}
+        	
+        	if (this.nickname.equals(userName)) {
+        		score = newScore;
+        		scoreLabel.setText("SCORE: " + score);
+        	}
         }
     }
     
