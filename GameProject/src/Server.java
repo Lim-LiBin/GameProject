@@ -217,7 +217,7 @@ public class Server {
 			}
 			currentRoom.WriteAll("CHAT::" + this.UserName + "님이 입장했습니다.");
 			this.WriteOne("CHAT::방 이름: " + currentRoom.roomName);
-			currentRoom.WriteAll("LOGIN::" + this.UserName); 
+			currentRoom.WriteAll("LOGIN::" + this.UserName); // 입/퇴장 동기화
 		}
 		
 		public void WriteOne(String msg) {
