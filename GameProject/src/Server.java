@@ -198,7 +198,6 @@ public class Server {
 			} else {
 				user.WriteOne("ROLE::GUEST");
 			}
-			
 			System.out.println(roomName + "(참가자: " + roomUsers.size() + "명)");
 		}
 		
@@ -235,6 +234,9 @@ public class Server {
 		private boolean isDrawer = false; //현재 라운드에서 출제자인지 여부
 		private int userScore = 0;
 		
+		// [추가] 서버에서도 점수 관리
+		private int score = 0;
+		
 		public UserService(Socket client_socket) {
 			this.client_socket = client_socket;
 			try {
@@ -249,8 +251,8 @@ public class Server {
 			//방이 없으면 생성하고, 있으면 가져옴
 			Room targetRoom = Server.this.createRoom(roomName);
 			this.currentRoom = targetRoom;
+			this.score = 0; // 방 입장 시 점수 초기화
 			targetRoom.enterUser(this);
-			
 			broadcastJoin();
 		}
 		
@@ -279,7 +281,7 @@ public class Server {
 			}
 			currentRoom.WriteAll("CHAT::" + this.UserName + "님이 입장했습니다.");
 			this.WriteOne("CHAT::방 이름: " + currentRoom.roomName);
-			this.WriteOne("LOGIN::" + this.UserName); // 내 클라이언트 목록에도 나를 추가
+			currentRoom.WriteAll("LOGIN::" + this.UserName); // 입/퇴장 동기화
 		}
 		
 		public void WriteOne(String msg) {
@@ -329,20 +331,27 @@ public class Server {
 		                    //참여자가 정답을 맞힌 경우
 		                    else {
 		                        String answer = currentRoom.currentKeyword;
+		                        currentRoom.currentKeyword = ""; 
 		                        
-		                        //점수 업데이트
-		                        this.userScore++;
-		                        currentRoom.WriteAll("SCORE_UPDATE::" + this.UserName + "," + this.userScore);
+		                        // [중요 수정] 점수 및 승리 로직
+		                        this.score++;
 		                        
-		                        //라운드 종료 처리
-		                        currentRoom.currentKeyword = ""; //키워드 초기화 (게임 종료)
-		                        currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
-		                        
-		                        //2초 딜레이 후 다음 라운드 자동 시작 시도
-		                        try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
-		                        Server.this.checkGameStart(currentRoom);
+		                        if (this.score >= 10) {
+		                        	// 10점 도달 시 게임 종료 알림
+		                        	currentRoom.WriteAll("CHAT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+		                        	currentRoom.WriteAll("GAME_OVER::" + this.UserName);
+		                        	
+		                        	// 모든 유저 점수 초기화 (다음 판을 위해)
+		                        	for(UserService u : currentRoom.roomUsers) {
+		                        		u.score = 0;
+		                        	}
+		                        } else {
+		                        	// 10점 미만이면 계속 진행
+		                        	currentRoom.WriteAll("NOTICE_CORRECT::" + this.UserName + "님이 정답을 맞혔습니다! (정답: " + answer + ")");
+			                        try { TimeUnit.SECONDS.sleep(2); } catch(InterruptedException e) {}
+			                        Server.this.checkGameStart(currentRoom); 
+		                        }
 		                    }
-		                    
 		                } else {
 		                    //정답이 아니면 일반 채팅으로 간주하여 방 전체에 전송
 		                    currentRoom.WriteAll("CHAT::" + this.UserName + ": " + userAnswer);
@@ -367,7 +376,6 @@ public class Server {
 							WriteOne("CHAT::[오류] 방장만 게임을 시작할 수 있습니다.");
 						}
 					}
-					
 				} 
 			} catch (IOException e) { 
 				//클라이언트가 강제로 종료하거나 네트워크 오류 발생 시
